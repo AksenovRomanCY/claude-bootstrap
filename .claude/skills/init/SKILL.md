@@ -18,27 +18,40 @@ Generate a project-specific CLAUDE.md by analyzing the current codebase.
    - Testing: jest, pytest, go test, vitest — what's configured
    - Linting: eslint, ruff, golangci-lint — what's in config
 
-2. **Map structure** — scan top-level directories and key files:
+2. **Find matching template** — check `~/.claude/bootstrap-rules/../templates/claude-md/` for a template that matches the detected stack:
+   - Next.js + Supabase → `saas-nextjs.md`
+   - React + Vite → `react-spa.md`
+   - NestJS → `nestjs.md`
+   - Express + Prisma → `express-prisma.md`
+   - Vue / Nuxt → `vue-nuxt.md`
+   - Go + gRPC → `go-microservice.md`
+   - Django → `django-api.md`
+   - FastAPI → `fastapi.md`
+   - Turborepo / Nx / pnpm workspaces → `monorepo.md`
+   - No match → use `SKELETON.md`
+   - If a template is found, use it as a **starting structure** — keep the section headings, rules, and patterns that apply, but **replace all placeholder content** with real data from the project (steps 3-6)
+
+3. **Map structure** — scan top-level directories and key files:
    - `src/`, `app/`, `internal/`, `cmd/`, `lib/`, `pkg/`
    - Build output in `.gitignore` gives hints about the build system
    - Generate a 2-3 level directory tree with purpose comments
 
-3. **Extract patterns** — find real code examples:
+4. **Extract patterns** — find real code examples:
    - API response format: grep for common response patterns
    - Error handling: how errors are created and returned
    - Auth pattern: how auth is checked in handlers/middleware
    - Pick 2-3 representative snippets
 
-4. **Find env vars** — scan for environment variable usage:
+5. **Find env vars** — scan for environment variable usage:
    - `.env.example`, `.env.sample`, `.env.template`
    - `process.env.`, `os.environ`, `os.Getenv`, `env::var`
    - Mark each as required/optional based on defaults
 
-5. **Check git workflow** — read recent commits for convention:
+6. **Check git workflow** — read recent commits for convention:
    - `git log --oneline -20` for commit message format
    - CI config: `.github/workflows/`, `.gitlab-ci.yml`, `Makefile`
 
-6. **Generate CLAUDE.md** — assemble using this structure:
+7. **Generate CLAUDE.md** — if a template was found in step 2, use it as the base structure and fill in real data from steps 1, 3-6. Otherwise assemble from scratch using:
    ```
    ## Project Overview
    ## Critical Rules
@@ -48,7 +61,7 @@ Generate a project-specific CLAUDE.md by analyzing the current codebase.
    ## Git Workflow
    ```
 
-7. **Write** the file to `./CLAUDE.md` and show the result.
+8. **Write** the file to `./CLAUDE.md` and show the result.
 
 ## Rules
 - Keep it under 200 lines
