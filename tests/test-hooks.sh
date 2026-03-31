@@ -5,7 +5,7 @@ set -euo pipefail
 # Run: bash tests/test-hooks.sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-HOOKS="$SCRIPT_DIR/.claude/hooks/scripts"
+HOOKS="$SCRIPT_DIR/plugin/hooks/scripts"
 PASSED=0
 FAILED=0
 

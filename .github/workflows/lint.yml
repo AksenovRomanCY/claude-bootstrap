@@ -16,11 +16,11 @@ jobs:
         uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: .
-          additional_files: "install.sh uninstall.sh build.sh"
+          additional_files: "install.sh uninstall.sh"
       - name: Run ShellCheck on hook scripts
         uses: ludeeus/action-shellcheck@2.0.0
         with:
-          scandir: .claude/hooks/scripts
+          scandir: plugin/hooks/scripts
 
   markdownlint:
     name: Markdown Lint
@@ -31,8 +31,7 @@ jobs:
         with:
           globs: |
             *.md
-            .claude/**/*.md
-            templates/**/*.md
+            plugin/**/*.md
 
   validate-json:
     name: Validate JSON
@@ -44,12 +43,16 @@ jobs:
       - name: Validate marketplace.json
         run: jq empty .claude-plugin/marketplace.json
       - name: Validate settings-hooks.json
-        run: jq empty .claude/settings-hooks.json
+        run: jq empty plugin/settings-hooks.json
+      - name: Validate hooks.json
+        run: jq empty plugin/hooks/hooks.json
 
   test-hooks:
     name: Hook Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get install -y jq
       - name: Run hook tests
         run: bash tests/test-hooks.sh
