@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0] — 2026-03-31
+
+### Added
+- **Plugin version** in `plugin/` — install via `/plugin marketplace add AksenovRomanCY/claude-bootstrap`
+- **Marketplace manifest** (`.claude-plugin/marketplace.json`) for plugin distribution
+- **Secret detection hook** (`warn-secrets`) — warns on hardcoded API keys, JWT tokens, private keys, passwords, GitHub/GitLab/Slack tokens
+- Templates installed to `~/.claude/bootstrap-templates/` so `/init` works without the bootstrap repo
+- `/bootstrap --update` — refresh project rules from updated library
+- `/bootstrap` adds `.claude/settings.local.json` to `.gitignore`
+- `/init` uses matching template as starting structure (e.g., NestJS project → `nestjs.md`)
+
+### Changed
+- `explain`, `verify`, `deps-check`, `doctor` — now auto-invocable by Claude (read-only, `disable-model-invocation: false`)
+- `commit`, `pr`, `init`, `bootstrap`, `test`, `fix-build`, `changelog` — remain manual-only (side effects)
+
 ## [1.1.0] — 2026-03-31
 
 ### Added
