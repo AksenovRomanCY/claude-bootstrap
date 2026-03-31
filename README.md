@@ -143,18 +143,18 @@ Installed to each project via `/bootstrap`. Common rules apply to all languages.
 
 | Template | Stack |
 | --- | --- |
-| [`SKELETON.md`](templates/claude-md/SKELETON.md) | Minimal fill-in-the-blanks |
-| [`saas-nextjs.md`](templates/claude-md/saas-nextjs.md) | Next.js 15 + Supabase + Stripe |
-| [`react-spa.md`](templates/claude-md/react-spa.md) | React + Vite + TanStack Query |
-| [`nestjs.md`](templates/claude-md/nestjs.md) | NestJS + Prisma + PostgreSQL |
-| [`express-prisma.md`](templates/claude-md/express-prisma.md) | Express + Prisma + PostgreSQL |
-| [`vue-nuxt.md`](templates/claude-md/vue-nuxt.md) | Vue 3 + Nuxt 3 + Pinia |
-| [`go-microservice.md`](templates/claude-md/go-microservice.md) | Go + gRPC + PostgreSQL |
-| [`django-api.md`](templates/claude-md/django-api.md) | Django + DRF + Celery |
-| [`fastapi.md`](templates/claude-md/fastapi.md) | FastAPI + SQLAlchemy + Alembic |
-| [`monorepo.md`](templates/claude-md/monorepo.md) | Turborepo / pnpm workspaces |
+| [`SKELETON.md`](plugin/templates/SKELETON.md) | Minimal fill-in-the-blanks |
+| [`saas-nextjs.md`](plugin/templates/saas-nextjs.md) | Next.js 15 + Supabase + Stripe |
+| [`react-spa.md`](plugin/templates/react-spa.md) | React + Vite + TanStack Query |
+| [`nestjs.md`](plugin/templates/nestjs.md) | NestJS + Prisma + PostgreSQL |
+| [`express-prisma.md`](plugin/templates/express-prisma.md) | Express + Prisma + PostgreSQL |
+| [`vue-nuxt.md`](plugin/templates/vue-nuxt.md) | Vue 3 + Nuxt 3 + Pinia |
+| [`go-microservice.md`](plugin/templates/go-microservice.md) | Go + gRPC + PostgreSQL |
+| [`django-api.md`](plugin/templates/django-api.md) | Django + DRF + Celery |
+| [`fastapi.md`](plugin/templates/fastapi.md) | FastAPI + SQLAlchemy + Alembic |
+| [`monorepo.md`](plugin/templates/monorepo.md) | Turborepo / pnpm workspaces |
 
-See [`GUIDE.md`](templates/claude-md/GUIDE.md) for how to write a CLAUDE.md from scratch.
+See [`GUIDE.md`](plugin/templates/GUIDE.md) for how to write a CLAUDE.md from scratch.
 
 ---
 
@@ -175,7 +175,7 @@ git pull
 
 ## Customization
 
-Edit files in `.claude/`, then run `./install.sh` to apply. For plugin users — fork the repo, modify, and point your marketplace to your fork.
+Edit files in `plugin/`, then run `./install.sh` to apply. For plugin users — fork the repo, modify, and point your marketplace to your fork.
 
 ## License
 

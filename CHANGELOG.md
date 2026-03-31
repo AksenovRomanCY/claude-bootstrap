@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.0] — 2026-03-31
+
+### Added
+- GitHub Actions CI: shellcheck, markdownlint, JSON validation, hook tests
+- Smart hook merge in `install.sh` — adds missing hooks individually instead of skipping
+- 14 tests for all 5 hook scripts (`tests/test-hooks.sh`)
+- `.markdownlint.json` config
+
+### Changed
+- **`plugin/` is now the single source of truth** — all skills, agents, hooks, rules, and templates live only in `plugin/`. No more duplication with `.claude/`
+- `install.sh` and `uninstall.sh` read from `plugin/` instead of `.claude/`
+- Removed `build.sh` (no longer needed)
+
+### Fixed
+- `warn-secrets.sh` — grep crash when content starts with `-----` (private key detection)
+- `warn-debug-code.sh` and `warn-secrets.sh` — use `printf '%s'` instead of `echo` for safe piping
+
 ## [1.2.0] — 2026-03-31
 
 ### Added

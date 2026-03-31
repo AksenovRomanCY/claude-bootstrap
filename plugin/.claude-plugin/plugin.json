@@ -1,6 +1,6 @@
 {
   "name": "claude-bootstrap",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Reusable preset for Claude Code — rules, skills, agents, and hooks for any project. Includes coding standards, TDD workflow, commit/PR automation, security checks, and CLAUDE.md templates for 10+ stacks.",
   "author": {
     "name": "Roman Aksenov"
