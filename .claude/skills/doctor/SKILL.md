@@ -33,7 +33,7 @@ Run a health check on the claude-bootstrap installation.
    - Report per skill: `OK` / `MISSING`
 
 5. **Check hooks** — verify scripts in `~/.claude/hooks/scripts/`:
-   - Files: `block-large-files.sh`, `block-no-verify.sh`, `warn-debug-code.sh`, `remind-compact.sh`
+   - Files: `block-large-files.sh`, `block-no-verify.sh`, `warn-debug-code.sh`, `warn-secrets.sh`, `remind-compact.sh`
    - Verify each is executable (`test -x`)
    - Report per script: `OK` / `MISSING` / `NOT EXECUTABLE`
 
@@ -49,9 +49,10 @@ Run a health check on the claude-bootstrap installation.
    ========================
    Version:    1.0.0 (current)
    Rules lib:  9/9 common, 3/3 language — OK
+   Templates:  11/11 — OK
    Agents:     4/4 — OK
    Skills:     11/11 — OK
-   Hooks:      4/4 scripts, all executable — OK
+   Hooks:      5/5 scripts, all executable — OK
    Settings:   hooks configured — OK
    ========================
    Overall: OK

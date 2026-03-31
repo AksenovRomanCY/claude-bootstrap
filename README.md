@@ -9,8 +9,8 @@ install.sh → ~/.claude/              /bootstrap → .claude/rules/ (per projec
                ├── skills/              ├── common/        (always)
                ├── agents/              ├── typescript/    (if detected)
                ├── hooks/scripts/       ├── python/        (if detected)
-               └── bootstrap-rules/     └── golang/        (if detected)
-                   (library)
+               ├── bootstrap-rules/     └── golang/        (if detected)
+               └── bootstrap-templates/
 ```
 
 **Global** (`~/.claude/`): skills, agents, hooks — personal workflow, all projects.
@@ -89,7 +89,7 @@ cd ~/Develop/claude-bootstrap
 
 | Command | What it does |
 |---------|-------------|
-| `/bootstrap` | Set up `.claude/rules/` — detect stack, copy rules |
+| `/bootstrap` | Set up `.claude/rules/` — detect stack, copy rules (`--update` to refresh) |
 | `/init` | Generate CLAUDE.md (`--check` to validate existing) |
 | `/commit` | Stage, generate commit message, commit |
 | `/pr` | Create PR (GitHub) or MR (GitLab) |
@@ -108,6 +108,7 @@ cd ~/Develop/claude-bootstrap
 | block-large-files | Block files >800 lines (Write + Edit) |
 | block-no-verify | Block `--no-verify` in git |
 | warn-debug-code | Warn on console.log, print(), debugger, etc. |
+| warn-secrets | Warn on hardcoded API keys, tokens, passwords |
 | remind-compact | Remind /compact every 50 actions |
 
 ## Templates
