@@ -1,7 +1,7 @@
 ---
 name: explain
 description: Explain a file, module, or code pattern — what it does, how it connects, key decisions
-disable-model-invocation: true
+disable-model-invocation: false
 allowed-tools: Read, Grep, Glob
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: deps-check
 description: Check for outdated and vulnerable dependencies, suggest updates
-disable-model-invocation: true
+disable-model-invocation: false
 allowed-tools: Bash, Read, Glob
 ---
 

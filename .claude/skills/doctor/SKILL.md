@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: Health check for claude-bootstrap installation — verify files, hooks, versions, and permissions
-disable-model-invocation: true
+disable-model-invocation: false
 allowed-tools: Bash, Read, Glob
 ---
 

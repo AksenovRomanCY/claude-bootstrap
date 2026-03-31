@@ -1,7 +1,7 @@
 ---
 name: verify
 description: Run all project checks — lint, typecheck, tests — and summarize results
-disable-model-invocation: true
+disable-model-invocation: false
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
