@@ -166,7 +166,13 @@ NEXT_PUBLIC_APP_URL=              # required, http://localhost:3000 for dev
 |----------|------|
 | Minimal skeleton | `SKELETON.md` |
 | Next.js SaaS | `saas-nextjs.md` |
+| React SPA | `react-spa.md` |
+| NestJS API | `nestjs.md` |
+| Express + Prisma | `express-prisma.md` |
+| Vue + Nuxt | `vue-nuxt.md` |
 | Go Microservice | `go-microservice.md` |
 | Django REST API | `django-api.md` |
+| FastAPI | `fastapi.md` |
+| Monorepo | `monorepo.md` |
 
 Copy the matching template to your project root as `CLAUDE.md` and customize it.
