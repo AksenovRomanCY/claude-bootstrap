@@ -18,7 +18,7 @@ Run a health check on the claude-bootstrap installation.
    - If the bootstrap repo path is known (via `$ARGUMENTS` or by checking common locations like `~/Develop/claude-bootstrap`), compare installed vs available `VERSION` file
    - Report: `CURRENT` / `OUTDATED` / `NOT INSTALLED`
 
-2. **Check rules library** — verify files exist in the plugin's `rules/` directory or `~/.claude/bootstrap-rules/`:
+2. **Check rules library** — verify files exist in `~/.claude/bootstrap-rules/`:
    - Common (9 files): `common/coding-style.md`, `common/database.md`, `common/dependencies.md`, `common/documentation.md`, `common/error-handling.md`, `common/git-workflow.md`, `common/linting.md`, `common/security.md`, `common/testing.md`
    - Language-specific: `typescript/conventions.md`, `python/conventions.md`, `golang/conventions.md`
    - Report per file: `OK` / `MISSING`

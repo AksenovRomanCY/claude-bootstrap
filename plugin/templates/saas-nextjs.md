@@ -62,6 +62,7 @@ supabase/
 ## Key Patterns
 
 ### API Response Format
+
 ```typescript
 type ApiResponse<T> =
   | { success: true; data: T }
@@ -69,6 +70,7 @@ type ApiResponse<T> =
 ```
 
 ### Server Action Pattern
+
 ```typescript
 "use server"
 
@@ -108,6 +110,7 @@ export async function createProject(formData: FormData) {
 ```
 
 ### Error Boundary Pattern
+
 ```typescript
 "use client"
 

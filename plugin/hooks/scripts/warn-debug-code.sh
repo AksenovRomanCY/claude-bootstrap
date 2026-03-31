@@ -23,26 +23,26 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // "unknown"')
 WARNINGS=""
 
 # JavaScript/TypeScript
-if echo "$CONTENT" | grep -qE 'console\.(log|warn|error|debug|info)\('; then
+if printf '%s' "$CONTENT" | grep -qE 'console\.(log|warn|error|debug|info)\('; then
   WARNINGS="${WARNINGS}  - console.log/warn/error/debug/info\n"
 fi
-if echo "$CONTENT" | grep -qE '\bdebugger\b'; then
+if printf '%s' "$CONTENT" | grep -qE '\bdebugger\b'; then
   WARNINGS="${WARNINGS}  - debugger statement\n"
 fi
 
 # Python
-if echo "$CONTENT" | grep -qE '^\s*print\('; then
+if printf '%s' "$CONTENT" | grep -qE '^\s*print\('; then
   WARNINGS="${WARNINGS}  - print()\n"
 fi
-if echo "$CONTENT" | grep -qE '\bbreakpoint\(\)'; then
+if printf '%s' "$CONTENT" | grep -qE '\bbreakpoint\(\)'; then
   WARNINGS="${WARNINGS}  - breakpoint()\n"
 fi
-if echo "$CONTENT" | grep -qE '\bipdb\b|\bpdb\.set_trace'; then
+if printf '%s' "$CONTENT" | grep -qE '\bipdb\b|\bpdb\.set_trace'; then
   WARNINGS="${WARNINGS}  - pdb/ipdb debugger\n"
 fi
 
 # Ruby
-if echo "$CONTENT" | grep -qE '\bbinding\.(pry|irb)\b'; then
+if printf '%s' "$CONTENT" | grep -qE '\bbinding\.(pry|irb)\b'; then
   WARNINGS="${WARNINGS}  - binding.pry/irb\n"
 fi
 

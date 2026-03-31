@@ -7,8 +7,8 @@ set -euo pipefail
 # Use /bootstrap in a project to copy relevant rules to .claude/rules/
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SOURCE="$SCRIPT_DIR/.claude"
-TEMPLATES_SOURCE="$SCRIPT_DIR/templates/claude-md"
+SOURCE="$SCRIPT_DIR/plugin"
+TEMPLATES_SOURCE="$SCRIPT_DIR/plugin/templates"
 TARGET="$HOME/.claude"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 INSTALLED_VERSION_FILE="$TARGET/.bootstrap-version"
@@ -128,9 +128,9 @@ diff_component() {
   local src_dir=$1 dst_dir=$2
   if [[ ! -d "$src_dir" ]]; then return; fi
   while IFS= read -r src_file; do
-    local rel="${src_file#$src_dir/}"
+    local rel="${src_file#"$src_dir"/}"
     local dst_file="$dst_dir/$rel"
-    local label="${dst_dir#$TARGET/}/$rel"
+    local label="${dst_dir#"$TARGET"/}/$rel"
     show_file_status "$src_file" "$dst_file" "$label"
   done < <(find "$src_dir" -type f)
 }
@@ -169,7 +169,7 @@ if [[ -d "$TARGET" ]] && [[ $count_modified -gt 0 || -f "$INSTALLED_VERSION_FILE
   echo "[OK] Backup: $BACKUP_FILE"
 
   # Keep only last 5 backups
-  ls -t "$BACKUP_DIR"/backup-*.tar.gz 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+  find "$BACKUP_DIR" -name 'backup-*.tar.gz' -type f | sort -r | tail -n +6 | xargs rm -f 2>/dev/null || true
 fi
 
 # --- Confirmation ---
@@ -209,13 +209,55 @@ if should_install "hooks" && [[ -f "$HOOKS_FILE" ]]; then
   if [[ ! -f "$SETTINGS_FILE" ]]; then
     cp "$HOOKS_FILE" "$SETTINGS_FILE"
     echo "[OK] settings.json created with hooks"
-  elif jq -e '.hooks' "$SETTINGS_FILE" > /dev/null 2>&1; then
-    echo "[SKIP] settings.json already has hooks — merge manually from:"
-    echo "       $SOURCE/settings-hooks.json"
-  else
+  elif ! jq -e '.hooks' "$SETTINGS_FILE" > /dev/null 2>&1; then
+    # No hooks key at all — simple merge
     MERGED=$(jq -s '.[0] * .[1]' "$SETTINGS_FILE" "$HOOKS_FILE")
     echo "$MERGED" > "$SETTINGS_FILE"
     echo "[OK] hooks merged into settings.json"
+  else
+    # Hooks exist — smart merge: add missing hook commands without duplicating
+    BOOTSTRAP_COMMANDS=$(jq -r '[.hooks[][] | .hooks[]? | .command] | .[]' "$HOOKS_FILE" 2>/dev/null)
+    EXISTING_COMMANDS=$(jq -r '[.hooks[][] | .hooks[]? | .command] | .[]' "$SETTINGS_FILE" 2>/dev/null)
+
+    MISSING=0
+    while IFS= read -r cmd; do
+      if ! echo "$EXISTING_COMMANDS" | grep -qF "$cmd"; then
+        ((MISSING++)) || true
+      fi
+    done <<< "$BOOTSTRAP_COMMANDS"
+
+    if [[ $MISSING -eq 0 ]]; then
+      echo "[OK] settings.json hooks already up to date"
+    else
+      # Merge: for each hook type and matcher, append missing hook commands
+      MERGED=$(jq -s '
+        def merge_hooks(a; b):
+          (b | .hooks // {} | to_entries) as $new_types |
+          reduce $new_types[] as $type (a;
+            ($type.key) as $tk |
+            ($type.value) as $new_groups |
+            reduce $new_groups[] as $ng (.;
+              (.hooks[$tk] // []) as $existing |
+              ($existing | map(select(.matcher == $ng.matcher)) | .[0] // null) as $match |
+              if $match == null then
+                .hooks[$tk] = ($existing + [$ng])
+              else
+                (.hooks[$tk] | to_entries | map(
+                  if .value.matcher == $ng.matcher then
+                    .value.hooks = (.value.hooks + [$ng.hooks[] | select(
+                      . as $h | ($match.hooks | map(.command) | index($h.command)) == null
+                    )])
+                  else . end
+                ) | from_entries) as $updated |
+                .hooks[$tk] = ($updated | to_entries | map(.value))
+              end
+            )
+          );
+        merge_hooks(.[0]; .[1])
+      ' "$SETTINGS_FILE" "$HOOKS_FILE")
+      echo "$MERGED" > "$SETTINGS_FILE"
+      echo "[OK] $MISSING new hook(s) merged into settings.json"
+    fi
   fi
 fi
 

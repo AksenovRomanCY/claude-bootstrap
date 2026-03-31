@@ -18,7 +18,7 @@ Generate a project-specific CLAUDE.md by analyzing the current codebase.
    - Testing: jest, pytest, go test, vitest — what's configured
    - Linting: eslint, ruff, golangci-lint — what's in config
 
-2. **Find matching template** — check the plugin's `templates/` directory (typically `~/.claude/plugins/cache/claude-bootstrap/templates/` or `~/.claude/bootstrap-templates/` for manual installs) for a template that matches the detected stack:
+2. **Find matching template** — check `~/.claude/bootstrap-templates/` for a template that matches the detected stack:
    - Next.js + Supabase → `saas-nextjs.md`
    - React + Vite → `react-spa.md`
    - NestJS → `nestjs.md`

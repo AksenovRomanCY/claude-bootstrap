@@ -7,11 +7,11 @@ allowed-tools: Read, Grep, Glob, Bash, Write
 
 # Bootstrap Project
 
-Set up `.claude/rules/` in the current project by detecting its stack and copying relevant rules from the bootstrap library (the plugin's `rules/` directory (find it via the plugin installation path, typically `~/.claude/plugins/cache/claude-bootstrap/rules/` or `~/.claude/bootstrap-rules/` for manual installs)).
+Set up `.claude/rules/` in the current project by detecting its stack and copying relevant rules from the bootstrap library (`~/.claude/bootstrap-rules/`).
 
 ## Process
 
-1. **Verify library** — check the plugin's `rules/` directory (find it via the plugin installation path, typically `~/.claude/plugins/cache/claude-bootstrap/rules/` or `~/.claude/bootstrap-rules/` for manual installs) exists
+1. **Verify library** — check `~/.claude/bootstrap-rules/` exists
    - If not: tell the user to run `install.sh` first and stop
 
 2. **Detect stack** — read config files to identify languages:
@@ -33,7 +33,7 @@ Set up `.claude/rules/` in the current project by detecting its stack and copyin
    ```
    Ask the user to confirm before proceeding.
 
-4. **Copy rules** — from the plugin's `rules/` directory (find it via the plugin installation path, typically `~/.claude/plugins/cache/claude-bootstrap/rules/` or `~/.claude/bootstrap-rules/` for manual installs) to `./.claude/rules/`:
+4. **Copy rules** — from `~/.claude/bootstrap-rules/` to `./.claude/rules/`:
    - **Always** copy `common/` — these are universal (coding-style, testing, git-workflow, security, error-handling, database, dependencies, documentation, linting)
    - Copy language-specific directories only for detected languages
    - If `.claude/rules/` already has files, warn and ask before overwriting
@@ -58,7 +58,7 @@ Set up `.claude/rules/` in the current project by detecting its stack and copyin
 If `$ARGUMENTS` contains `--update`, skip stack detection and update existing rules:
 
 1. **Read** `.claude/rules/` to find which language directories are present
-2. **Compare** each file with the plugin's `rules/` directory (find it via the plugin installation path, typically `~/.claude/plugins/cache/claude-bootstrap/rules/` or `~/.claude/bootstrap-rules/` for manual installs) and show changes
+2. **Compare** each file with `~/.claude/bootstrap-rules/` and show changes
 3. **Copy** updated files from library, preserving the existing language selection
 4. Do NOT add or remove language rules — only refresh what's already there
 5. Show summary: "N files updated, M unchanged"

@@ -5,7 +5,7 @@ set -euo pipefail
 # Removes only files installed by install.sh, cleans hooks from settings.json
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SOURCE="$SCRIPT_DIR/.claude"
+SOURCE="$SCRIPT_DIR/plugin"
 TARGET="$HOME/.claude"
 
 DRY_RUN=false
@@ -40,7 +40,7 @@ FILES_TO_REMOVE=()
 for dir in agents hooks/scripts skills; do
   if [[ ! -d "$SOURCE/$dir" ]]; then continue; fi
   while IFS= read -r src_file; do
-    rel="${src_file#$SOURCE/}"
+    rel="${src_file#"$SOURCE"/}"
     target_file="$TARGET/$rel"
     if [[ -f "$target_file" ]]; then
       FILES_TO_REMOVE+=("$rel")
@@ -51,7 +51,7 @@ done
 # Rules library: source is rules/, target is bootstrap-rules/
 if [[ -d "$SOURCE/rules" ]]; then
   while IFS= read -r src_file; do
-    rel="${src_file#$SOURCE/rules/}"
+    rel="${src_file#"$SOURCE"/rules/}"
     target_file="$TARGET/bootstrap-rules/$rel"
     if [[ -f "$target_file" ]]; then
       FILES_TO_REMOVE+=("bootstrap-rules/$rel")
@@ -60,10 +60,10 @@ if [[ -d "$SOURCE/rules" ]]; then
 fi
 
 # Templates: source is templates/claude-md/, target is bootstrap-templates/
-TEMPLATES_SOURCE="$SCRIPT_DIR/templates/claude-md"
+TEMPLATES_SOURCE="$SCRIPT_DIR/plugin/templates"
 if [[ -d "$TEMPLATES_SOURCE" ]]; then
   while IFS= read -r src_file; do
-    rel="${src_file#$TEMPLATES_SOURCE/}"
+    rel="${src_file#"$TEMPLATES_SOURCE"/}"
     target_file="$TARGET/bootstrap-templates/$rel"
     if [[ -f "$target_file" ]]; then
       FILES_TO_REMOVE+=("bootstrap-templates/$rel")

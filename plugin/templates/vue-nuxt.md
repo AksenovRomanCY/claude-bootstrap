@@ -92,6 +92,7 @@ public/
 ## Key Patterns
 
 ### Page with Data Fetching
+
 ```vue
 <script setup lang="ts">
 definePageMeta({ middleware: "auth" })
@@ -114,6 +115,7 @@ const { data: order, status } = await useFetch(`/api/orders/${route.params.id}`)
 ```
 
 ### Pinia Store
+
 ```typescript
 // stores/auth.ts
 export const useAuthStore = defineStore("auth", () => {
@@ -140,6 +142,7 @@ export const useAuthStore = defineStore("auth", () => {
 ```
 
 ### Server API Route
+
 ```typescript
 // server/api/orders/index.post.ts
 import { z } from "zod"

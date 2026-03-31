@@ -175,4 +175,4 @@ NEXT_PUBLIC_APP_URL=              # required, http://localhost:3000 for dev
 | FastAPI | `fastapi.md` |
 | Monorepo | `monorepo.md` |
 
-Copy the matching template to your project root as `CLAUDE.md` and customize it.
+Copy a template to your project root as `CLAUDE.md` and customize, or run `/init` to auto-generate from your project.

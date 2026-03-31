@@ -27,11 +27,13 @@
 ## Key Patterns
 
 ### [Pattern 1, e.g. API Response]
+
 ```[language]
 [real snippet from the project]
 ```
 
 ### [Pattern 2, e.g. Error Handling]
+
 ```[language]
 [real snippet from the project]
 ```

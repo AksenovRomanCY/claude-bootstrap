@@ -14,3 +14,10 @@ Thumbs.db
 /tmp/
 *.tmp
 *.bak
+
+# Symlinks to plugin/ (source of truth is plugin/, these are for local dev)
+.claude/skills
+.claude/agents
+.claude/hooks/scripts
+.claude/rules
+templates/claude-md
