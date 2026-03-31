@@ -57,4 +57,70 @@ Generate a project-specific CLAUDE.md by analyzing the current codebase.
 - Don't overwrite an existing CLAUDE.md without asking first
 - If unsure about a convention, ask the user
 
+## Check Mode (`--check`)
+
+If `$ARGUMENTS` contains `--check`, run **validation mode** instead of generation.
+
+### Validation Process
+
+1. **Read** the existing `./CLAUDE.md`
+   - If it doesn't exist: report "No CLAUDE.md found. Run `/init` to generate one." and stop
+
+2. **Check 6 mandatory sections** — each must exist as a `##` heading:
+   - `## Project Overview`
+   - `## Critical Rules`
+   - `## File Structure`
+   - `## Key Patterns`
+   - `## Environment Variables`
+   - `## Git Workflow`
+
+3. **Validate each section's content**:
+
+   **Project Overview:**
+   - Must contain `**Stack:**` and at least one of `**Architecture:**` or `**Purpose:**`
+   - `INCOMPLETE` if any keyword is missing
+
+   **Critical Rules:**
+   - Must have at least one `###` sub-heading
+   - Should have a `### Forbidden` sub-section
+   - `WEAK` if fewer than 3 rules total
+
+   **File Structure:**
+   - Must contain a fenced code block (triple backticks)
+   - Code block should have at least 5 lines of tree content
+   - `SHALLOW` if code block is missing or too short
+
+   **Key Patterns:**
+   - Must contain at least one fenced code block with a language tag
+   - Should have at least 2 `###` sub-headings inside
+   - Report "has no code snippets" if empty
+
+   **Environment Variables:**
+   - Must contain a fenced code block
+   - Each variable should have a comment (`#`)
+   - `UNMARKED` if variables lack comments
+
+   **Git Workflow:**
+   - Must mention commit format
+   - `INCOMPLETE` if no CI/CD mentioned
+
+4. **Report** in this format:
+   ```
+   CLAUDE.md Health Check
+   ======================
+   Project Overview:       OK
+   Critical Rules:         OK
+   File Structure:         OK
+   Key Patterns:           INCOMPLETE (has no code snippets)
+   Environment Variables:  OK
+   Git Workflow:            INCOMPLETE (no CI mentioned)
+   ======================
+   Score: 4/6 sections OK, 2 need attention
+   ```
+
+### Check Mode Rules
+- Never modify CLAUDE.md — report only
+- For each issue, suggest what to add
+- `MISSING` = section heading absent, `INCOMPLETE` = exists but lacks key content
+
 $ARGUMENTS
