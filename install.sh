@@ -8,6 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="$SCRIPT_DIR/.claude"
+TEMPLATES_SOURCE="$SCRIPT_DIR/templates/claude-md"
 TARGET="$HOME/.claude"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 INSTALLED_VERSION_FILE="$TARGET/.bootstrap-version"
@@ -26,10 +27,11 @@ show_help() {
 Usage: install.sh [OPTIONS]
 
 Installs to ~/.claude/:
-  skills/          Skills (/commit, /pr, /verify, /bootstrap, etc.)
-  agents/          Agents (/plan, /review, /security, /refactor)
-  hooks/scripts/   Hook enforcement scripts
-  bootstrap-rules/ Rules library (used by /bootstrap per-project)
+  skills/              Skills (/commit, /pr, /verify, /bootstrap, etc.)
+  agents/              Agents (/plan, /review, /security, /refactor)
+  hooks/scripts/       Hook enforcement scripts
+  bootstrap-rules/     Rules library (used by /bootstrap per-project)
+  bootstrap-templates/ CLAUDE.md templates (used by /init)
 
 Options:
   --dry-run        Preview changes without installing
@@ -139,6 +141,7 @@ should_install "agents" && diff_component "$SOURCE/agents" "$TARGET/agents"
 should_install "hooks" && diff_component "$SOURCE/hooks/scripts" "$TARGET/hooks/scripts"
 should_install "skills" && diff_component "$SOURCE/skills" "$TARGET/skills"
 should_install "rules" && diff_component "$SOURCE/rules" "$TARGET/bootstrap-rules"
+diff_component "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates"
 
 if [[ $count_new -eq 0 && $count_modified -eq 0 ]]; then
   echo "  (no changes)"
@@ -196,6 +199,7 @@ if should_install "hooks"; then
 fi
 should_install "skills" && copy_dir "$SOURCE/skills" "$TARGET/skills" "skills"
 should_install "rules" && copy_dir "$SOURCE/rules" "$TARGET/bootstrap-rules" "bootstrap-rules (library)"
+copy_dir "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates" "bootstrap-templates"
 
 # --- Merge hooks into settings.json ---
 SETTINGS_FILE="$TARGET/settings.json"

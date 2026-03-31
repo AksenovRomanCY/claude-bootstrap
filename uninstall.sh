@@ -59,6 +59,18 @@ if [[ -d "$SOURCE/rules" ]]; then
   done < <(find "$SOURCE/rules" -type f)
 fi
 
+# Templates: source is templates/claude-md/, target is bootstrap-templates/
+TEMPLATES_SOURCE="$SCRIPT_DIR/templates/claude-md"
+if [[ -d "$TEMPLATES_SOURCE" ]]; then
+  while IFS= read -r src_file; do
+    rel="${src_file#$TEMPLATES_SOURCE/}"
+    target_file="$TARGET/bootstrap-templates/$rel"
+    if [[ -f "$target_file" ]]; then
+      FILES_TO_REMOVE+=("bootstrap-templates/$rel")
+    fi
+  done < <(find "$TEMPLATES_SOURCE" -type f)
+fi
+
 # Check .bootstrap-version
 if [[ -f "$TARGET/.bootstrap-version" ]]; then
   FILES_TO_REMOVE+=(".bootstrap-version")
@@ -132,7 +144,8 @@ for dir in skills/commit skills/pr skills/verify skills/explain skills/fix-build
            skills/init skills/test skills/changelog skills/deps-check skills/doctor \
            skills/bootstrap skills hooks/scripts hooks agents \
            bootstrap-rules/common bootstrap-rules/typescript \
-           bootstrap-rules/python bootstrap-rules/golang bootstrap-rules; do
+           bootstrap-rules/python bootstrap-rules/golang bootstrap-rules \
+           bootstrap-templates; do
   rmdir "$TARGET/$dir" 2>/dev/null || true
 done
 
