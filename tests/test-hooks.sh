@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2015
 set -euo pipefail
 
 # Tests for claude-bootstrap hook scripts
