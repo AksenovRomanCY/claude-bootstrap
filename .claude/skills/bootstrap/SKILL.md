@@ -38,10 +38,32 @@ Set up `.claude/rules/` in the current project by detecting its stack and copyin
    - Copy language-specific directories only for detected languages
    - If `.claude/rules/` already has files, warn and ask before overwriting
 
-5. **Suggest next step** — after copying rules:
+5. **Ensure .gitignore** — check if `.gitignore` exists in the project root:
+   - If `.gitignore` exists but does NOT contain `.claude/settings.local.json`:
+     append the following lines and inform the user:
+     ```
+     # Claude Code local settings (personal, not shared)
+     .claude/settings.local.json
+     ```
+   - If `.gitignore` already has the entry — skip silently
+   - If no `.gitignore` exists — skip (don't create one just for this)
+
+6. **Suggest next step** — after copying rules:
    - If `./CLAUDE.md` exists: suggest running `/init --check` to validate it
    - If no `./CLAUDE.md`: suggest running `/init` to generate one
    - Remind to commit `.claude/rules/` to git
+
+## Update Mode (`--update`)
+
+If `$ARGUMENTS` contains `--update`, skip stack detection and update existing rules:
+
+1. **Read** `.claude/rules/` to find which language directories are present
+2. **Compare** each file with `~/.claude/bootstrap-rules/` and show changes
+3. **Copy** updated files from library, preserving the existing language selection
+4. Do NOT add or remove language rules — only refresh what's already there
+5. Show summary: "N files updated, M unchanged"
+
+This is useful after running `git pull && ./install.sh` on the bootstrap repo to propagate rule changes to the project.
 
 ## Arguments
 
@@ -49,12 +71,13 @@ Set up `.claude/rules/` in the current project by detecting its stack and copyin
 - Language names to force (e.g., `typescript python`) — skip auto-detection
 - `--all` — install all language rules regardless of detection
 - `--common-only` — install only common rules, skip language-specific
+- `--update` — refresh existing rules without re-detecting stack
 
 ## Rules
 - Never install rules without confirmation
 - If `.claude/rules/` already exists with content, show diff of what will change
 - Common rules are always included (they are language-agnostic)
-- Don't modify existing files outside `.claude/rules/`
+- Don't modify existing files outside `.claude/rules/` (except .gitignore entry)
 - Don't generate CLAUDE.md — that's the job of `/init`
 
 $ARGUMENTS
