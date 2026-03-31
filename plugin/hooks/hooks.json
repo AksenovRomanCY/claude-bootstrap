@@ -1,0 +1,43 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/block-large-files.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/block-no-verify.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/warn-debug-code.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/warn-secrets.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/remind-compact.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

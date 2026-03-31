@@ -1,0 +1,22 @@
+{
+  "name": "claude-bootstrap",
+  "version": "1.1.0",
+  "description": "Reusable preset for Claude Code — rules, skills, agents, and hooks for any project. Includes coding standards, TDD workflow, commit/PR automation, security checks, and CLAUDE.md templates for 10+ stacks.",
+  "author": {
+    "name": "Roman Aksenov"
+  },
+  "repository": "https://github.com/AksenovRomanCY/claude-bootstrap",
+  "license": "MIT",
+  "keywords": [
+    "bootstrap",
+    "preset",
+    "rules",
+    "coding-standards",
+    "typescript",
+    "python",
+    "golang",
+    "tdd",
+    "security",
+    "code-review"
+  ]
+}
