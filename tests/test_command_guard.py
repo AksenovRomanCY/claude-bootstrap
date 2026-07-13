@@ -13,12 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 HOOKS_DIR = ROOT / "plugin" / "hooks"
 COMMAND_GUARD = HOOKS_DIR / "scripts" / "command_guard.py"
 BASH_FIXTURES = ROOT / "tests" / "fixtures" / "bash-commands.json"
+FILESYSTEM_FIXTURES = ROOT / "tests" / "fixtures" / "filesystem-commands.json"
 GIT_FIXTURES = ROOT / "tests" / "fixtures" / "git-commands.json"
 
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
+from guard.context import from_hook_payload
 from guard.decisions import Decision, DecisionKind, combine
+from guard.filesystem import evaluate as evaluate_filesystem
 from guard.git import load_git_context
 from guard.shell import parse
 
@@ -63,6 +66,20 @@ def prepared_git_workspace(fixture):
                 (cwd / "dirty.txt").write_text("dirty\n", encoding="utf-8")
 
         yield cwd
+
+
+@contextmanager
+def prepared_filesystem_workspace(fixture):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        parent = Path(tmpdir)
+        project = parent / "project"
+        project.mkdir()
+        (project / ".git").mkdir()
+        for directory in ["dist", "build", "node_modules", "build output", "linked"]:
+            (project / directory).mkdir()
+
+        command = fixture["command"].replace("{{PROJECT}}", str(project)).replace("{{PARENT}}", str(parent))
+        yield project, command
 
 
 class CommandGuardTests(unittest.TestCase):
@@ -216,6 +233,33 @@ class CommandGuardTests(unittest.TestCase):
             load_git_context(ROOT)
 
         self.assertEqual(set(seen), allowed)
+
+    def test_filesystem_decision_fixtures(self):
+        fixtures = json.loads(FILESYSTEM_FIXTURES.read_text(encoding="utf-8"))
+
+        for fixture in fixtures:
+            with self.subTest(fixture["name"]):
+                with prepared_filesystem_workspace(fixture) as (cwd, command):
+                    completed = self.run_guard(bash_payload(command, cwd))
+
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(completed.stderr, "")
+                expected_decision = fixture["decision"]
+
+                if expected_decision == "none":
+                    self.assertEqual(completed.stdout, "")
+                    continue
+
+                output = json.loads(completed.stdout)
+                hook_output = output["hookSpecificOutput"]
+                self.assertEqual(hook_output["permissionDecision"], expected_decision)
+                self.assertIn(f"[{fixture['rule']}]", hook_output["permissionDecisionReason"])
+
+    def test_filesystem_rules_do_not_run_subprocesses(self):
+        with mock.patch("subprocess.run", side_effect=AssertionError("filesystem rules must not run subprocesses")):
+            decisions = evaluate_filesystem(from_hook_payload(bash_payload("rm -rf dist")), parse("rm -rf dist"))
+
+        self.assertEqual(decisions[0].rule_id, "FS-RM-RF")
 
     def test_malformed_json_fails_open(self):
         completed = subprocess.run(

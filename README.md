@@ -104,7 +104,7 @@ Run automatically — no manual invocation needed.
 | Hook | Trigger | Action |
 | --- | --- | --- |
 | `block-large-files` | Write, Edit | Block files > 800 lines |
-| `command_guard` | Bash | Guard destructive Git operations and hook bypasses |
+| `command_guard` | Bash | Guard destructive Git and filesystem operations |
 | `warn-debug-code` | Edit, Write | Warn on `console.log`, `print()`, `debugger` |
 | `warn-secrets` | Edit, Write | Warn on hardcoded API keys, tokens, passwords |
 | `remind-compact` | Edit, Write | Remind to `/compact` every 50 actions |
