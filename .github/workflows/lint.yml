@@ -99,6 +99,14 @@ jobs:
       - name: Run harden skill tests
         run: bash tests/test-harden-skill.sh
 
+  test-doctor-skill:
+    name: Doctor Skill Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run doctor skill tests
+        run: bash tests/test-doctor-skill.sh
+
   test-apply-profile:
     name: Apply Profile Tests
     runs-on: ubuntu-latest

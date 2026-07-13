@@ -87,7 +87,7 @@ Plugin or install.sh               In any project
 | `/test <feature>` | TDD workflow: RED &rarr; GREEN &rarr; IMPROVE | |
 | `/changelog` | Generate changelog from git history | |
 | `/deps-check` | Audit outdated and vulnerable dependencies | \* |
-| `/doctor` | Health check: files, hooks, versions, permissions | \* |
+| `/doctor` | Read-only health check: files, hooks, versions, hardening, permissions, and sandbox config status | \* |
 
 \* **Auto** — Claude can invoke these automatically when relevant (read-only, no side effects).
 
