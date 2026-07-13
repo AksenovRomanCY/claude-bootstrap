@@ -64,7 +64,7 @@ if find "$HOME_ONE/.claude" -name '*.pyc' -o -name '__pycache__' | grep -q .; th
 else
   pass "fresh install skips Python cache files"
 fi
-assert_jq "$HOME_ONE/.claude/settings.json" '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | select(.command == "python3 ~/.claude/hooks/scripts/command_guard.py" and (.if | startswith("Bash(")))] | length == 27' "fresh install has expected Bash command_guard hooks"
+assert_jq "$HOME_ONE/.claude/settings.json" '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | select(.command == "python3 ~/.claude/hooks/scripts/command_guard.py" and (.if | startswith("Bash(")))] | length == 30' "fresh install has expected Bash command_guard hooks"
 assert_jq "$HOME_ONE/.claude/settings.json" '[.hooks.PostToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]? | select(.command | contains("remind-compact.sh"))] | length == 1' "fresh install keeps remind-compact hook"
 
 echo ""
@@ -127,7 +127,7 @@ run_install "$HOME_TWO" > "$TMP_ROOT/migrate-install.log"
 assert_jq "$HOME_TWO/.claude/settings.json" '.theme == "dark"' "migration preserves unrelated settings"
 assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]?.command] | index("custom-pre") != null and index("custom-post") != null' "migration preserves custom hooks"
 assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]?.command] | map(select(test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"))) | length == 0' "migration removes legacy hooks"
-assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]?.command] | map(select(contains("command_guard.py"))) | length == 29' "migration adds if-scoped command_guard entries once"
+assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]?.command] | map(select(contains("command_guard.py"))) | length == 32' "migration adds if-scoped command_guard entries once"
 assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks.PostToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | map(select(contains("remind-compact.sh"))) | length == 1' "migration adds remind-compact once"
 
 backup_count=$(find "$HOME_TWO/.claude/backups" -name 'backup-*.tar.gz' -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -140,7 +140,7 @@ after_hash=$(jq -S -c . "$HOME_TWO/.claude/settings.json")
 backup_count_after_reinstall=$(find "$HOME_TWO/.claude/backups" -name 'backup-*.tar.gz' -type f 2>/dev/null | wc -l | tr -d ' ')
 [[ "$before_hash" == "$after_hash" ]] && pass "reinstall keeps settings idempotent" || fail "reinstall should not change settings"
 [[ "$backup_count_before_reinstall" == "$backup_count_after_reinstall" ]] && pass "reinstall does not create unnecessary backup" || fail "reinstall should not create unnecessary backup"
-[[ "$(hook_count "$HOME_TWO/.claude/settings.json" "command_guard.py")" == "29" ]] && pass "reinstall does not duplicate command_guard hooks" || fail "reinstall should not duplicate command_guard hooks"
+[[ "$(hook_count "$HOME_TWO/.claude/settings.json" "command_guard.py")" == "32" ]] && pass "reinstall does not duplicate command_guard hooks" || fail "reinstall should not duplicate command_guard hooks"
 
 echo ""
 

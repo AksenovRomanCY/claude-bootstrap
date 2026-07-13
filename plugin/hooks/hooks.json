@@ -24,6 +24,24 @@
           },
           {
             "type": "command",
+            "if": "Bash(env *)",
+            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "if": "Bash(command *)",
+            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "if": "Bash(nohup *)",
+            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
+            "timeout": 30
+          },
+          {
+            "type": "command",
             "if": "Bash(curl *)",
             "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
             "timeout": 30
