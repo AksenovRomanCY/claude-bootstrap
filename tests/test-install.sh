@@ -142,6 +142,25 @@ backup_count_after_reinstall=$(find "$HOME_TWO/.claude/backups" -name 'backup-*.
 [[ "$backup_count_before_reinstall" == "$backup_count_after_reinstall" ]] && pass "reinstall does not create unnecessary backup" || fail "reinstall should not create unnecessary backup"
 [[ "$(hook_count "$HOME_TWO/.claude/settings.json" "command_guard.py")" == "32" ]] && pass "reinstall does not duplicate command_guard hooks" || fail "reinstall should not duplicate command_guard hooks"
 
+custom_guard_command="python3 ~/.claude/hooks/scripts/command_guard.py"
+tmp_settings=$(mktemp)
+jq --arg command "$custom_guard_command" '
+  .hooks.PreToolUse += [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "if": "Bash(custom-tool *)",
+          "command": $command,
+          "timeout": 11
+        }
+      ]
+    }
+  ]
+' "$HOME_TWO/.claude/settings.json" > "$tmp_settings"
+mv "$tmp_settings" "$HOME_TWO/.claude/settings.json"
+
 echo ""
 
 # --------------------------------------------------
@@ -178,7 +197,9 @@ assert_no_file "$HOME_TWO/.claude/hardening/apply_profile.py" "uninstall removes
 assert_no_file "$HOME_TWO/.claude/skills/harden/SKILL.md" "uninstall removes harden skill"
 assert_no_file "$HOME_TWO/.claude/.bootstrap-version" "uninstall removes version file"
 assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]?.command] | index("custom-pre") != null and index("custom-post") != null' "uninstall preserves custom hooks"
-assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]?.command] | map(select(test("command_guard\\.py|remind-compact\\.sh|block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"))) | length == 0' "uninstall removes bootstrap and legacy hook entries"
+assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | select(.if == "Bash(custom-tool *)" and .command == "python3 ~/.claude/hooks/scripts/command_guard.py" and .timeout == 11)] | length == 1' "uninstall preserves custom command_guard hook"
+assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]? | select((.command // "") | test("remind-compact\\.sh|block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"))] | length == 0' "uninstall removes legacy and remind-compact hook entries"
+assert_jq "$HOME_TWO/.claude/settings.json" '[.hooks[][]?.hooks[]? | select((.command // "") | contains("command_guard.py")) | select((.if // "") != "Bash(custom-tool *)")] | length == 0' "uninstall removes bootstrap command_guard entries"
 assert_file "$PROJECT_DIR/.claude/settings.json" "uninstall leaves project settings alone"
 assert_file "$PROJECT_DIR/.claude/security-policy.json" "uninstall leaves project security policy alone"
 assert_file "$PROJECT_DIR/.claude/rules/custom.md" "uninstall leaves project rules alone"

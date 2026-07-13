@@ -42,16 +42,29 @@ settings_cleanup_jq_program() {
   cat <<'JQ'
 def is_legacy_hook:
   (.command // "" | test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"));
-def should_remove($bootstrap):
-  (.command // "") as $command |
-  is_legacy_hook or (($bootstrap | index($command)) != null);
-def clean_group($bootstrap):
-  .hooks = ((.hooks // []) | map(select(should_remove($bootstrap) | not)))
+def hook_fingerprint($event; $matcher):
+  [$event, $matcher, (.type // ""), (.command // ""), (.if // ""), (.args // [])] | @json;
+def should_remove($bootstrap; $event; $matcher):
+  . as $hook |
+  is_legacy_hook or (($bootstrap | index(($hook | hook_fingerprint($event; $matcher)))) != null);
+def clean_group($bootstrap; $event):
+  (.matcher // "") as $matcher |
+  .hooks = ((.hooks // []) | map(select(should_remove($bootstrap; $event; $matcher) | not)))
   | select((.hooks | length) > 0);
 def clean_hooks($bootstrap):
-  (.hooks // {}) | with_entries(.value = ((.value // []) | map(clean_group($bootstrap)))) | with_entries(select((.value | length) > 0));
+  (.hooks // {})
+  | with_entries(.key as $event | .value = ((.value // []) | map(clean_group($bootstrap; $event))))
+  | with_entries(select((.value | length) > 0));
 .[0] as $settings |
-([.[1].hooks[][]?.hooks[]?.command] | unique) as $bootstrap |
+([
+  .[1].hooks
+  | to_entries[]?
+  | .key as $event
+  | .value[]? as $group
+  | ($group.matcher // "") as $matcher
+  | $group.hooks[]?
+  | hook_fingerprint($event; $matcher)
+] | unique) as $bootstrap |
 ($settings | .hooks = ($settings | clean_hooks($bootstrap)))
 | if .hooks == {} then del(.hooks) else . end
 JQ
