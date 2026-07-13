@@ -29,7 +29,7 @@ Run a health check on the claude-bootstrap installation.
    - Report per file: `OK` / `MISSING`
 
 4. **Check skills** — verify `SKILL.md` exists in each `~/.claude/skills/` subdirectory:
-   - `commit`, `pr`, `verify`, `explain`, `fix-build`, `init`, `test`, `changelog`, `deps-check`, `doctor`, `bootstrap`
+   - `commit`, `pr`, `verify`, `explain`, `fix-build`, `init`, `test`, `changelog`, `deps-check`, `doctor`, `bootstrap`, `harden`
    - Report per skill: `OK` / `MISSING`
 
 5. **Check hooks** — verify files in `~/.claude/hooks/`:
@@ -52,7 +52,7 @@ Run a health check on the claude-bootstrap installation.
    Rules lib:  10/10 common, 3/3 language — OK
    Templates:  11/11 — OK
    Agents:     4/4 — OK
-   Skills:     11/11 — OK
+   Skills:     12/12 — OK
    Hooks:      18/18 files, shell scripts executable — OK
    Settings:   hooks configured — OK
    ========================

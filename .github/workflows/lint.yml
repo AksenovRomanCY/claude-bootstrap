@@ -91,6 +91,14 @@ jobs:
       - name: Run hardening profile tests
         run: bash tests/test-hardening-profiles.sh
 
+  test-harden-skill:
+    name: Harden Skill Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run harden skill tests
+        run: bash tests/test-harden-skill.sh
+
   test-apply-profile:
     name: Apply Profile Tests
     runs-on: ubuntu-latest

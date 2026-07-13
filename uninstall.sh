@@ -87,14 +87,6 @@ for dir in agents hooks/scripts hooks/guard hardening skills; do
   done < <(find "$SOURCE/$dir" -type f)
 done
 
-# Future-compatible /harden cleanup before task 15 adds the source skill.
-if [[ -d "$TARGET/skills/harden" ]]; then
-  while IFS= read -r target_file; do
-    rel="${target_file#"$TARGET"/}"
-    FILES_TO_REMOVE+=("$rel")
-  done < <(find "$TARGET/skills/harden" -type f)
-fi
-
 # Rules library: source is rules/, target is bootstrap-rules/
 if [[ -d "$SOURCE/rules" ]]; then
   while IFS= read -r src_file; do
