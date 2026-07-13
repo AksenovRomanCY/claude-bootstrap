@@ -22,6 +22,8 @@ PERMISSION_LISTS = {
     ("permissions", "ask"),
     ("permissions", "deny"),
 }
+MANAGED_BY = "claude-bootstrap"
+MANAGED_VERSION = 1
 SCALAR_CONFLICTS = {
     ("permissions", "disableBypassPermissionsMode"),
     ("sandbox", "enabled"),
@@ -72,6 +74,10 @@ def settings_path(project_root: Path) -> Path:
 
 def security_policy_path(project_root: Path) -> Path:
     return project_root / ".claude" / "security-policy.json"
+
+
+def harden_state_path(project_root: Path) -> Path:
+    return project_root / ".claude" / "harden-state.json"
 
 
 def type_matches(value: Any, expected: str) -> bool:
@@ -215,6 +221,151 @@ def merge_settings(
     return merged, conflicts
 
 
+def json_key(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def path_string(path: tuple[str, ...]) -> str:
+    return ".".join(path)
+
+
+def get_nested(data: dict[str, Any], path: tuple[str, ...]) -> tuple[bool, Any]:
+    current: Any = data
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return False, None
+        current = current[key]
+    return True, current
+
+
+def delete_nested(data: dict[str, Any], path: tuple[str, ...]) -> None:
+    parents: list[tuple[dict[str, Any], str]] = []
+    current: Any = data
+    for key in path[:-1]:
+        if not isinstance(current, dict) or key not in current:
+            return
+        parents.append((current, key))
+        current = current[key]
+
+    if isinstance(current, dict):
+        current.pop(path[-1], None)
+
+    for parent, key in reversed(parents):
+        value = parent.get(key)
+        if isinstance(value, dict) and not value:
+            parent.pop(key, None)
+        else:
+            break
+
+
+def collect_inserted_settings(
+    existing: dict[str, Any],
+    profile: dict[str, Any],
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    inserted: dict[str, Any] = {"scalars": {}}
+
+    def collect(source: dict[str, Any], path: tuple[str, ...]) -> None:
+        for key, source_value in source.items():
+            child_path = (*path, key)
+            exists, existing_value = get_nested(existing, child_path)
+
+            if child_path in PERMISSION_LISTS:
+                if not isinstance(source_value, list):
+                    continue
+                existing_items = existing_value if exists and isinstance(existing_value, list) else []
+                existing_keys = {json_key(item) for item in existing_items}
+                values = [item for item in source_value if json_key(item) not in existing_keys]
+                if values:
+                    inserted[path_string(child_path)] = merge_unique([], values)
+                continue
+
+            if isinstance(source_value, dict):
+                collect(source_value, child_path)
+                continue
+
+            if not exists or (force and existing_value != source_value):
+                inserted["scalars"][path_string(child_path)] = copy.deepcopy(source_value)
+
+    collect(profile, ())
+    return inserted
+
+
+def merge_state(existing_state: dict[str, Any], new_state: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(existing_state) if existing_state else {}
+    merged["managedBy"] = MANAGED_BY
+    merged["managedVersion"] = MANAGED_VERSION
+    merged["appliedProfile"] = new_state["appliedProfile"]
+
+    existing_inserted = merged.get("insertedSettings")
+    if not isinstance(existing_inserted, dict):
+        existing_inserted = {}
+    new_inserted = new_state.get("insertedSettings", {})
+    if not isinstance(new_inserted, dict):
+        new_inserted = {}
+
+    combined_inserted: dict[str, Any] = {"scalars": {}}
+    for key in sorted(set(existing_inserted) | set(new_inserted)):
+        if key == "scalars":
+            continue
+        existing_values = existing_inserted.get(key, [])
+        new_values = new_inserted.get(key, [])
+        if isinstance(existing_values, list) and isinstance(new_values, list):
+            combined_inserted[key] = merge_unique(existing_values, new_values)
+
+    scalars: dict[str, Any] = {}
+    for source in (existing_inserted.get("scalars"), new_inserted.get("scalars")):
+        if isinstance(source, dict):
+            scalars.update(copy.deepcopy(source))
+    combined_inserted["scalars"] = scalars
+    merged["insertedSettings"] = combined_inserted
+
+    if "managedPolicy" in new_state:
+        merged["managedPolicy"] = copy.deepcopy(new_state["managedPolicy"])
+    elif "managedPolicy" in existing_state:
+        merged["managedPolicy"] = copy.deepcopy(existing_state["managedPolicy"])
+
+    return merged
+
+
+def load_state(project_root: Path) -> dict[str, Any]:
+    target = harden_state_path(project_root)
+    if not target.exists():
+        return {}
+    state = load_json(target, "harden state")
+    if state.get("managedBy") != MANAGED_BY:
+        raise ProfileError(f"harden state is not managed by {MANAGED_BY}: {target}")
+    if state.get("managedVersion") != MANAGED_VERSION:
+        raise ProfileError(f"harden state has unsupported version: {target}")
+    return state
+
+
+def managed_settings_conflicts(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
+    conflicts: list[str] = []
+    inserted = state.get("insertedSettings", {})
+    if not isinstance(inserted, dict):
+        return conflicts
+
+    for key, values in inserted.items():
+        if key == "scalars":
+            continue
+        if not values:
+            continue
+        exists, current_value = get_nested(settings, tuple(key.split(".")))
+        if exists and not isinstance(current_value, list):
+            conflicts.append(key)
+
+    scalars = inserted.get("scalars", {})
+    if isinstance(scalars, dict):
+        for key, managed_value in scalars.items():
+            exists, current_value = get_nested(settings, tuple(key.split(".")))
+            if exists and current_value != managed_value:
+                conflicts.append(key)
+
+    return conflicts
+
+
 def format_json(data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
@@ -249,6 +400,13 @@ def atomic_write(path: Path, content: str) -> None:
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
+
+
+def restore_file(path: Path, content: str | None) -> None:
+    if content is None:
+        path.unlink(missing_ok=True)
+    else:
+        atomic_write(path, content)
 
 
 def create_backup(path: Path) -> Path:
@@ -288,6 +446,7 @@ def apply_profile(
     profile = load_json(profile_path(profile_name), f"profile '{profile_name}'")
     policy_target, policy_changed, policy_before, policy_after = prepare_security_policy(project_root, profile_name)
     target = settings_path(project_root)
+    state_target = harden_state_path(project_root)
 
     if target.exists():
         existing = load_json(target, "settings")
@@ -296,15 +455,53 @@ def apply_profile(
         existing = {}
         before = ""
 
+    existing_state = load_state(project_root)
     merged, conflicts = merge_settings(existing, profile, force=force)
+    if existing_state:
+        state_conflicts = managed_settings_conflicts(existing_state, existing)
+        if force:
+            state_conflicts = []
+        conflicts.extend(state_conflicts)
+
+        managed_policy = existing_state.get("managedPolicy")
+        if isinstance(managed_policy, dict) and managed_policy.get("created") is True and policy_target.exists():
+            managed_content = managed_policy.get("content")
+            current_policy = load_json(policy_target, "security policy")
+            if current_policy != managed_content:
+                if force:
+                    policy_changed = True
+                    policy_before = policy_target.read_text(encoding="utf-8")
+                    policy_after = format_json(managed_content)
+                else:
+                    conflicts.append("security-policy.json")
+
     settings_changed = merged != existing
-    changed = settings_changed or policy_changed
+    state_before = state_target.read_text(encoding="utf-8") if state_target.exists() else ""
+    inserted_settings = collect_inserted_settings(existing, profile, force=force)
+    next_state: dict[str, Any] = {
+        "managedBy": MANAGED_BY,
+        "managedVersion": MANAGED_VERSION,
+        "appliedProfile": profile_name,
+        "insertedSettings": inserted_settings,
+    }
+    if policy_changed:
+        next_state["managedPolicy"] = {
+            "path": ".claude/security-policy.json",
+            "created": True,
+            "content": json.loads(policy_after),
+        }
+    state = merge_state(existing_state, next_state)
+    state_after = format_json(state)
+    state_changed = json.loads(state_after) != (json.loads(state_before) if state_before else {})
+    changed = settings_changed or policy_changed or state_changed
     after = format_json(merged)
     diff = ""
     if settings_changed:
         diff += unified_diff(before, after, target)
     if policy_changed:
         diff += unified_diff(policy_before, policy_after, policy_target)
+    if state_changed:
+        diff += unified_diff(state_before, state_after, state_target)
 
     if conflicts:
         return ApplyResult(changed=False, conflicts=conflicts, diff="")
@@ -313,26 +510,162 @@ def apply_profile(
         return ApplyResult(changed=changed, conflicts=[], diff=diff)
 
     backup_path = create_backup(target) if settings_changed and target.exists() else None
-    policy_existed = policy_target.exists()
+    original_settings = before if target.exists() else None
+    original_policy = policy_before if policy_target.exists() else None
+    original_state = state_before if state_target.exists() else None
     try:
         if policy_changed:
             atomic_write(policy_target, policy_after)
         if settings_changed:
             atomic_write(target, after)
+        if state_changed:
+            atomic_write(state_target, state_after)
     except OSError as exc:
-        if policy_changed and not policy_existed:
-            policy_target.unlink(missing_ok=True)
+        rollback_errors: list[str] = []
+        for rollback_path, rollback_content in (
+            (target, original_settings),
+            (policy_target, original_policy),
+            (state_target, original_state),
+        ):
+            try:
+                restore_file(rollback_path, rollback_content)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{rollback_path}: {rollback_exc}")
+
+        if rollback_errors:
+            details = "; ".join(rollback_errors)
+            raise ProfileError(f"failed to write profile files: {exc}; rollback failed: {details}") from exc
         raise ProfileError(f"failed to write profile files: {exc}") from exc
 
     return ApplyResult(changed=True, conflicts=[], diff=diff, backup_path=backup_path)
 
 
+def remove_list_items(existing: list[Any], managed_items: list[Any]) -> list[Any]:
+    managed_keys = {json_key(item) for item in managed_items}
+    return [item for item in existing if json_key(item) not in managed_keys]
+
+
+def remove_profile(
+    *,
+    project_root: Path,
+    profile_name: str,
+    dry_run: bool = False,
+    check: bool = False,
+    force: bool = False,
+) -> ApplyResult:
+    state_target = harden_state_path(project_root)
+    if not state_target.exists():
+        return ApplyResult(changed=False, conflicts=[], diff="")
+
+    state = load_state(project_root)
+    if state.get("appliedProfile") != profile_name:
+        raise ProfileError(
+            f"harden state is for profile '{state.get('appliedProfile')}', not '{profile_name}'"
+        )
+
+    target = settings_path(project_root)
+    if target.exists():
+        existing = load_json(target, "settings")
+        before = target.read_text(encoding="utf-8")
+    else:
+        existing = {}
+        before = ""
+
+    updated = copy.deepcopy(existing)
+    conflicts: list[str] = []
+    inserted = state.get("insertedSettings", {})
+    if not isinstance(inserted, dict):
+        raise ProfileError(f"harden state insertedSettings must be an object: {state_target}")
+
+    for key, values in inserted.items():
+        if key == "scalars":
+            continue
+        if not isinstance(values, list):
+            raise ProfileError(f"harden state entry must be an array: {key}")
+        path = tuple(key.split("."))
+        exists, current_value = get_nested(updated, path)
+        if not exists:
+            if values and not force:
+                conflicts.append(key)
+            continue
+        if not isinstance(current_value, list):
+            if values:
+                conflicts.append(key)
+            continue
+        current_keys = {json_key(item) for item in current_value}
+        missing_managed_values = [item for item in values if json_key(item) not in current_keys]
+        if missing_managed_values and not force:
+            conflicts.append(key)
+            continue
+        remaining = remove_list_items(current_value, values)
+        if remaining:
+            parent_exists, parent = get_nested(updated, path[:-1])
+            if parent_exists and isinstance(parent, dict):
+                parent[path[-1]] = remaining
+        else:
+            delete_nested(updated, path)
+
+    scalars = inserted.get("scalars", {})
+    if not isinstance(scalars, dict):
+        raise ProfileError("harden state insertedSettings.scalars must be an object")
+    for key, managed_value in scalars.items():
+        path = tuple(key.split("."))
+        exists, current_value = get_nested(updated, path)
+        if not exists:
+            continue
+        if current_value == managed_value or force:
+            delete_nested(updated, path)
+        else:
+            conflicts.append(key)
+
+    policy_target = security_policy_path(project_root)
+    policy_before = policy_target.read_text(encoding="utf-8") if policy_target.exists() else ""
+    remove_policy = False
+    managed_policy = state.get("managedPolicy")
+    if isinstance(managed_policy, dict) and managed_policy.get("created") is True:
+        managed_content = managed_policy.get("content")
+        if policy_target.exists():
+            current_policy = load_json(policy_target, "security policy")
+            if current_policy == managed_content or force:
+                remove_policy = True
+            else:
+                conflicts.append("security-policy.json")
+
+    settings_changed = updated != existing
+    state_before = state_target.read_text(encoding="utf-8")
+    diff = ""
+    if settings_changed:
+        diff += unified_diff(before, format_json(updated), target)
+    if remove_policy:
+        diff += unified_diff(policy_before, "", policy_target)
+    diff += unified_diff(state_before, "", state_target)
+    changed = settings_changed or remove_policy or state_target.exists()
+
+    if conflicts:
+        return ApplyResult(changed=False, conflicts=conflicts, diff="")
+
+    if not changed or dry_run or check:
+        return ApplyResult(changed=changed, conflicts=[], diff=diff)
+
+    try:
+        if settings_changed:
+            atomic_write(target, format_json(updated))
+        if remove_policy:
+            policy_target.unlink(missing_ok=True)
+        state_target.unlink(missing_ok=True)
+    except OSError as exc:
+        raise ProfileError(f"failed to remove profile files: {exc}") from exc
+
+    return ApplyResult(changed=True, conflicts=[], diff=diff)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Apply a claude-bootstrap hardening profile.")
-    parser.add_argument("--profile", required=True, help="Profile name, for example: baseline")
+    parser.add_argument("--profile", default="baseline", help="Profile name, for example: baseline")
     parser.add_argument("--dry-run", action="store_true", help="Show changes without writing settings")
     parser.add_argument("--check", action="store_true", help="Exit non-zero if the profile is not applied")
     parser.add_argument("--force", action="store_true", help="Resolve scalar conflicts by using profile values")
+    parser.add_argument("--remove", action="store_true", help="Remove settings managed by the profile state")
     return parser
 
 
@@ -340,13 +673,22 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
-        result = apply_profile(
-            project_root=Path.cwd(),
-            profile_name=args.profile,
-            dry_run=args.dry_run,
-            check=args.check,
-            force=args.force,
-        )
+        if args.remove:
+            result = remove_profile(
+                project_root=Path.cwd(),
+                profile_name=args.profile,
+                dry_run=args.dry_run,
+                check=args.check,
+                force=args.force,
+            )
+        else:
+            result = apply_profile(
+                project_root=Path.cwd(),
+                profile_name=args.profile,
+                dry_run=args.dry_run,
+                check=args.check,
+                force=args.force,
+            )
     except ProfileError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -355,16 +697,25 @@ def main(argv: list[str] | None = None) -> int:
         print("Conflicts detected:", file=sys.stderr)
         for conflict in result.conflicts:
             print(f"  - {conflict}", file=sys.stderr)
-        print("Use --force to replace conflicting scalar values.", file=sys.stderr)
+        if args.remove:
+            print("Use --force to remove modified managed values.", file=sys.stderr)
+        else:
+            print("Use --force to replace conflicting scalar values.", file=sys.stderr)
         return 1
 
     if args.check:
         if result.changed:
-            print(f"Profile '{args.profile}' is not fully applied.")
+            if args.remove:
+                print(f"Profile '{args.profile}' still has managed state.")
+            else:
+                print(f"Profile '{args.profile}' is not fully applied.")
             if result.diff:
                 print(result.diff, end="")
             return 1
-        print(f"Profile '{args.profile}' is already applied.")
+        if args.remove:
+            print(f"Profile '{args.profile}' has no managed state.")
+        else:
+            print(f"Profile '{args.profile}' is already applied.")
         return 0
 
     if args.dry_run:
@@ -375,7 +726,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if result.changed:
-        print(f"Applied profile '{args.profile}'.")
+        if args.remove:
+            print(f"Removed profile '{args.profile}'.")
+        else:
+            print(f"Applied profile '{args.profile}'.")
         if result.backup_path is not None:
             print(f"Backup: {result.backup_path}")
     else:

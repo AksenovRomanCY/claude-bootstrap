@@ -75,7 +75,7 @@ Plugin or install.sh               In any project
 | Command | Description | Auto |
 | --- | --- | --- |
 | `/bootstrap` | Set up `.claude/rules/` — detect stack, copy rules. `--update` to refresh | |
-| `/harden` | Apply baseline project hardening. `--dry-run` to preview, `--check` to detect drift | |
+| `/harden` | Apply baseline project hardening. `--dry-run` to preview, `--check` to detect drift, `--remove` to remove managed settings | |
 | `/init` | Generate `CLAUDE.md` from project analysis. `--check` to validate existing | |
 | `/commit` | Stage changes, generate conventional commit message, commit | |
 | `/pr` | Create GitHub PR or GitLab MR with auto-generated description | |
@@ -141,7 +141,9 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 
 ## Hardening
 
-`/harden` applies the baseline profile to the current project after showing a preview and asking for confirmation. It creates or updates `.claude/settings.json`, creates `.claude/security-policy.json` when missing, and installs `common/destructive-operations.md` without running `/bootstrap`.
+`/harden` applies the baseline profile to the current project after showing a preview and asking for confirmation. It creates or updates `.claude/settings.json`, creates `.claude/security-policy.json` when missing, writes `.claude/harden-state.json`, and installs `common/destructive-operations.md` without running `/bootstrap`.
+
+`/harden --remove` uses `.claude/harden-state.json` to remove only settings that claude-bootstrap added. User permission rules, hooks, custom policy changes, and `.claude/rules/` are preserved; modified managed values are reported as conflicts unless the user explicitly asks for `--force`.
 
 `plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
 
