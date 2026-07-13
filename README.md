@@ -103,7 +103,7 @@ Run automatically — no manual invocation needed.
 
 | Hook | Trigger | Action |
 | --- | --- | --- |
-| `block-large-files` | Write, Edit | Block files > 800 lines |
+| `large_file_policy` | Write, Edit | Warn or ask on large-file creation/growth using `.claude/security-policy.json` thresholds |
 | `command_guard` | Bash | Guard destructive Git, filesystem, infrastructure, and publication operations |
 | `warn-debug-code` | Edit, Write | Warn on `console.log`, `print()`, `debugger` |
 | `warn-secrets` | Edit, Write | Warn on hardcoded API keys, tokens, passwords |

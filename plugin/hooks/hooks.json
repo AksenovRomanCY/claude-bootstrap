@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/block-large-files.sh"
+            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/large_file_policy.py\""
           }
         ]
       },

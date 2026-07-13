@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/scripts/block-large-files.sh"
+            "command": "python3 ~/.claude/hooks/scripts/large_file_policy.py"
           }
         ]
       },

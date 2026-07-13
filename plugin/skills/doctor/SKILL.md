@@ -33,7 +33,7 @@ Run a health check on the claude-bootstrap installation.
    - Report per skill: `OK` / `MISSING`
 
 5. **Check hooks** — verify files in `~/.claude/hooks/`:
-   - Scripts: `block-large-files.sh`, `command_guard.py`, `block-no-verify.sh`, `warn-debug-code.sh`, `warn-secrets.sh`, `remind-compact.sh`
+   - Scripts: `large_file_policy.py`, `command_guard.py`, `block-large-files.sh` compatibility wrapper, `block-no-verify.sh`, `warn-debug-code.sh`, `warn-secrets.sh`, `remind-compact.sh`
    - Guard modules: `guard/__init__.py`, `guard/context.py`, `guard/decisions.py`, `guard/filesystem.py`, `guard/git.py`, `guard/infrastructure.py`, `guard/rules.py`, `guard/shell.py`
    - Verify `.sh` scripts are executable (`test -x`)
    - Report per file: `OK` / `MISSING` / `NOT EXECUTABLE`
@@ -53,7 +53,7 @@ Run a health check on the claude-bootstrap installation.
    Templates:  11/11 — OK
    Agents:     4/4 — OK
    Skills:     11/11 — OK
-   Hooks:      14/14 files, shell scripts executable — OK
+   Hooks:      15/15 files, shell scripts executable — OK
    Settings:   hooks configured — OK
    ========================
    Overall: OK

@@ -46,6 +46,18 @@ echo "hook configuration"
 # --------------------------------------------------
 
 for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
+  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | any(contains("large_file_policy.py"))' "$config" > /dev/null; then
+    pass "$(basename "$config") uses large_file_policy.py"
+  else
+    fail "$(basename "$config") should use large_file_policy.py"
+  fi
+
+  if jq -e '[.hooks.PreToolUse[]? | .hooks[]?.command] | any(contains("block-large-files.sh")) | not' "$config" > /dev/null; then
+    pass "$(basename "$config") has no active block-large-files.sh"
+  else
+    fail "$(basename "$config") should not reference block-large-files.sh"
+  fi
+
   if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(contains("command_guard.py"))' "$config" > /dev/null; then
     pass "$(basename "$config") uses command_guard.py"
   else
@@ -62,23 +74,25 @@ done
 echo ""
 
 # --------------------------------------------------
-echo "block-large-files.sh"
+echo "large_file_policy.py"
 # --------------------------------------------------
 
 # Should pass: Write with small content
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"line1\nline2\nline3"}}'
-run_hook "block-large-files.sh" "$INPUT" > /dev/null 2>&1 && pass "small Write passes" || fail "small Write should pass"
+INPUT='{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"line1\nline2\nline3"}}'
+echo "$INPUT" | python3 "$HOOKS/large_file_policy.py" > /dev/null 2>&1 && pass "small Write passes" || fail "small Write should pass"
 
-# Should block: Write with >800 lines
-LONG_CONTENT=$(printf 'line %.0s\n' $(seq 1 801))
-INPUT=$(jq -n --arg c "$LONG_CONTENT" '{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":$c}}')
-run_hook "block-large-files.sh" "$INPUT" > /dev/null 2>&1 && fail "large Write should block" || {
-  [[ $? -eq 2 ]] && pass "large Write blocks (exit 2)" || fail "large Write wrong exit code"
-}
+# Should ask: new Write with >1200 lines
+LONG_CONTENT=$(printf 'line %.0s\n' $(seq 1 1201))
+INPUT=$(jq -n --arg c "$LONG_CONTENT" '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":$c}}')
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/large_file_policy.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' > /dev/null && pass "huge Write asks" || fail "huge Write should ask"
+
+# Compatibility wrapper should still call the new policy and never block with exit 2
+run_hook "block-large-files.sh" "$INPUT" > /dev/null 2>&1 && pass "compatibility wrapper exits 0" || fail "compatibility wrapper should exit 0"
 
 # Should pass: non-Write/Edit tool
-INPUT='{"tool_name":"Bash","tool_input":{"command":"echo hello"}}'
-run_hook "block-large-files.sh" "$INPUT" > /dev/null 2>&1 && pass "non-Write tool passes" || fail "non-Write tool should pass"
+INPUT='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hello"}}'
+echo "$INPUT" | python3 "$HOOKS/large_file_policy.py" > /dev/null 2>&1 && pass "non-Write tool passes" || fail "non-Write tool should pass"
 
 echo ""
 
