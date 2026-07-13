@@ -29,6 +29,7 @@ class CommandSegment:
 class ShellParseResult:
     segments: list[CommandSegment]
     unsupported: list[str]
+    separators: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -246,20 +247,27 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
 def parse(command: str) -> ShellParseResult:
     tokenized = tokenize(command)
     segments: list[CommandSegment] = []
+    separators: list[str] = []
     current: list[str] = []
+    pending_separator: str | None = None
 
     for token in tokenized.tokens:
         if token in SEPARATORS:
             segment = normalize_segment(current, tokenized.unsupported)
             if segment is not None:
+                if segments and pending_separator is not None:
+                    separators.append(pending_separator)
                 segments.append(segment)
             current = []
+            pending_separator = token
             continue
         current.append(token)
 
     segment = normalize_segment(current, tokenized.unsupported)
     if segment is not None:
+        if segments and pending_separator is not None:
+            separators.append(pending_separator)
         segments.append(segment)
 
     unsupported = sorted({item for segment in segments for item in segment.unsupported})
-    return ShellParseResult(segments=segments, unsupported=unsupported)
+    return ShellParseResult(segments=segments, unsupported=unsupported, separators=separators)

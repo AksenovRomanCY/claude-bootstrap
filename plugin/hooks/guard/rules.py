@@ -6,6 +6,7 @@ from .context import HookContext
 from .decisions import Decision
 from .filesystem import evaluate as evaluate_filesystem
 from .git import evaluate as evaluate_git
+from .infrastructure import evaluate as evaluate_infrastructure
 from .shell import ShellParseResult
 
 
@@ -25,6 +26,7 @@ def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
         )
 
     decisions.extend(evaluate_git(context, parsed))
+    decisions.extend(evaluate_infrastructure(context, parsed))
     decisions.extend(evaluate_filesystem(context, parsed))
 
     return decisions

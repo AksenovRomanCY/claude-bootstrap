@@ -17,6 +17,12 @@
   {
     "name": "compound commands",
     "command": "echo one && git status || git log; pwd\nwhoami",
+    "separators": [
+      "&&",
+      "||",
+      ";",
+      "\n"
+    ],
     "segments": [
       {
         "words": [
@@ -176,6 +182,9 @@
   {
     "name": "pipe",
     "command": "curl https://example.com/install.sh | sh",
+    "separators": [
+      "|"
+    ],
     "segments": [
       {
         "words": [

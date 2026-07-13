@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,7 @@ COMMAND_GUARD = HOOKS_DIR / "scripts" / "command_guard.py"
 BASH_FIXTURES = ROOT / "tests" / "fixtures" / "bash-commands.json"
 FILESYSTEM_FIXTURES = ROOT / "tests" / "fixtures" / "filesystem-commands.json"
 GIT_FIXTURES = ROOT / "tests" / "fixtures" / "git-commands.json"
+INFRASTRUCTURE_FIXTURES = ROOT / "tests" / "fixtures" / "infrastructure-commands.json"
 
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
@@ -23,6 +25,7 @@ from guard.context import from_hook_payload
 from guard.decisions import Decision, DecisionKind, combine
 from guard.filesystem import evaluate as evaluate_filesystem
 from guard.git import load_git_context
+from guard.infrastructure import evaluate as evaluate_infrastructure
 from guard.shell import parse
 
 spec = importlib.util.spec_from_file_location("command_guard", COMMAND_GUARD)
@@ -82,14 +85,33 @@ def prepared_filesystem_workspace(fixture):
         yield project, command
 
 
+@contextmanager
+def prepared_infrastructure_workspace(fixture):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir) / "project"
+        project.mkdir()
+        (project / ".git").mkdir()
+
+        policy = fixture.get("policy")
+        if policy is not None:
+            policy_dir = project / ".claude"
+            policy_dir.mkdir()
+            policy_data = {"version": 1}
+            policy_data.update(policy)
+            (policy_dir / "security-policy.json").write_text(json.dumps(policy_data), encoding="utf-8")
+
+        yield project
+
+
 class CommandGuardTests(unittest.TestCase):
-    def run_guard(self, payload):
+    def run_guard(self, payload, env=None):
         return subprocess.run(
             [sys.executable, str(COMMAND_GUARD)],
             input=json.dumps(payload),
             text=True,
             capture_output=True,
             check=False,
+            env=env,
         )
 
     def test_decision_priority(self):
@@ -195,6 +217,8 @@ class CommandGuardTests(unittest.TestCase):
 
                 self.assertEqual(actual_segments, fixture["segments"])
                 self.assertEqual(parsed.unsupported, fixture["unsupported"])
+                if "separators" in fixture:
+                    self.assertEqual(parsed.separators, fixture["separators"])
 
     def test_git_decision_fixtures(self):
         fixtures = json.loads(GIT_FIXTURES.read_text(encoding="utf-8"))
@@ -260,6 +284,62 @@ class CommandGuardTests(unittest.TestCase):
             decisions = evaluate_filesystem(from_hook_payload(bash_payload("rm -rf dist")), parse("rm -rf dist"))
 
         self.assertEqual(decisions[0].rule_id, "FS-RM-RF")
+
+    def test_infrastructure_decision_fixtures(self):
+        fixtures = json.loads(INFRASTRUCTURE_FIXTURES.read_text(encoding="utf-8"))
+
+        for fixture in fixtures:
+            with self.subTest(fixture["name"]):
+                with prepared_infrastructure_workspace(fixture) as cwd:
+                    completed = self.run_guard(bash_payload(fixture["command"], cwd), env={"PATH": ""})
+
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(completed.stderr, "")
+                if fixture["decision"] == "none":
+                    self.assertEqual(completed.stdout, "")
+                    continue
+
+                output = json.loads(completed.stdout)
+                hook_output = output["hookSpecificOutput"]
+                self.assertEqual(hook_output["permissionDecision"], fixture["decision"])
+                self.assertIn(f"[{fixture['rule']}]", hook_output["permissionDecisionReason"])
+
+    def test_infrastructure_context_uses_only_allowed_commands(self):
+        allowed = {
+            ("kubectl", "config", "current-context"),
+            ("terraform", "workspace", "show"),
+        }
+        seen = []
+
+        def fake_run(command, **kwargs):
+            seen.append(tuple(command))
+            return subprocess.CompletedProcess(command, 0, stdout="production\n", stderr="")
+
+        commands = ["kubectl delete deployment app", "terraform apply"]
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("guard.infrastructure.subprocess.run", side_effect=fake_run):
+                for command in commands:
+                    evaluate_infrastructure(from_hook_payload(bash_payload(command)), parse(command))
+
+        self.assertEqual(set(seen), allowed)
+
+    def test_infrastructure_missing_context_commands_do_not_break_guard(self):
+        def missing_command(command, **kwargs):
+            raise OSError("missing command")
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("guard.infrastructure.subprocess.run", side_effect=missing_command):
+                decisions = evaluate_infrastructure(from_hook_payload(bash_payload("terraform apply")), parse("terraform apply"))
+
+        self.assertEqual(decisions[0].kind, DecisionKind.ASK)
+        self.assertEqual(decisions[0].rule_id, "TERRAFORM-APPLY")
+
+    def test_infrastructure_environment_detection_uses_process_env(self):
+        with mock.patch.dict(os.environ, {"ENVIRONMENT": "production"}, clear=True):
+            decisions = evaluate_infrastructure(from_hook_payload(bash_payload("terraform apply")), parse("terraform apply"))
+
+        self.assertEqual(decisions[0].kind, DecisionKind.DENY)
+        self.assertEqual(decisions[0].rule_id, "PRODUCTION-DESTRUCTIVE")
 
     def test_malformed_json_fails_open(self):
         completed = subprocess.run(
