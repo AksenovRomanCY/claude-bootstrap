@@ -131,7 +131,7 @@ def prepared_filesystem_workspace(fixture):
         for directory in ["dist", "build", "node_modules", "build output", "linked"]:
             (project / directory).mkdir()
 
-        command = fixture["command"].replace("{{PROJECT}}", str(project)).replace("{{PARENT}}", str(parent))
+        command = fixture["command"].replace("{{PROJECT}}", project.as_posix()).replace("{{PARENT}}", parent.as_posix())
         yield project, command
 
 

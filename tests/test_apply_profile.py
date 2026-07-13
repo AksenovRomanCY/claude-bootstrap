@@ -54,6 +54,10 @@ class ApplyProfileTests(unittest.TestCase):
             **kwargs,
         )
 
+    def apply_with_supported_sandbox(self, profile_name="baseline", **kwargs):
+        with mock.patch.object(apply_profile, "ensure_sandbox_supported"):
+            return self.apply(profile_name, sandbox=True, **kwargs)
+
     def remove(self, profile_name="baseline", **kwargs):
         return apply_profile.remove_profile(
             project_root=self.project,
@@ -173,7 +177,7 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(forced["sandbox"]["enabled"], True)
 
     def test_applies_sandbox_overlay_with_baseline(self):
-        result = self.apply(sandbox=True)
+        result = self.apply_with_supported_sandbox()
 
         self.assertTrue(result.changed)
         settings = self.read_settings()
@@ -204,7 +208,7 @@ class ApplyProfileTests(unittest.TestCase):
         custom_file = {"path": "~/.custom-token", "mode": "deny"}
         self.write_settings({"sandbox": {"credentials": {"files": [custom_file]}}})
 
-        self.apply(sandbox=True)
+        self.apply_with_supported_sandbox()
 
         settings = self.read_settings()
         self.assertIn(custom_file, settings["sandbox"]["credentials"]["files"])
@@ -217,7 +221,7 @@ class ApplyProfileTests(unittest.TestCase):
     def test_sandbox_overlay_conflicting_scalar_requires_force(self):
         self.write_settings({"sandbox": {"enabled": False}})
 
-        result = self.apply(sandbox=True)
+        result = self.apply_with_supported_sandbox()
 
         self.assertFalse(result.changed)
         self.assertEqual(result.conflicts, ["sandbox.enabled"])
@@ -226,7 +230,7 @@ class ApplyProfileTests(unittest.TestCase):
     def test_force_replaces_conflicting_sandbox_scalar(self):
         self.write_settings({"sandbox": {"enabled": False}})
 
-        result = self.apply(sandbox=True, force=True)
+        result = self.apply_with_supported_sandbox(force=True)
 
         self.assertTrue(result.changed)
         self.assertTrue(self.read_settings()["sandbox"]["enabled"])
@@ -236,18 +240,18 @@ class ApplyProfileTests(unittest.TestCase):
         )
 
     def test_repeated_sandbox_apply_is_idempotent(self):
-        self.apply(sandbox=True)
+        self.apply_with_supported_sandbox()
         first = self.settings.read_text(encoding="utf-8")
         state_first = (self.project / ".claude" / "harden-state.json").read_text(encoding="utf-8")
 
-        result = self.apply(sandbox=True)
+        result = self.apply_with_supported_sandbox()
 
         self.assertFalse(result.changed)
         self.assertEqual(self.settings.read_text(encoding="utf-8"), first)
         self.assertEqual((self.project / ".claude" / "harden-state.json").read_text(encoding="utf-8"), state_first)
 
     def test_remove_sandbox_only_removes_sandbox_overlay(self):
-        self.apply(sandbox=True)
+        self.apply_with_supported_sandbox()
 
         result = apply_profile.remove_sandbox_overlay(project_root=self.project)
 
@@ -261,7 +265,7 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertTrue(self.policy.exists())
 
     def test_remove_profile_removes_sandbox_overlay_too(self):
-        self.apply(sandbox=True)
+        self.apply_with_supported_sandbox()
 
         self.remove()
 
@@ -269,7 +273,7 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertFalse((self.project / ".claude" / "harden-state.json").exists())
 
     def test_switch_profile_preserves_sandbox_overlay(self):
-        self.apply(sandbox=True)
+        self.apply_with_supported_sandbox()
 
         result = self.apply("strict")
 
