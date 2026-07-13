@@ -167,12 +167,14 @@ settings_jq_program() {
   cat <<'JQ'
 def is_legacy_hook:
   (.command // "" | test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"));
+def hook_key:
+  [(.type // ""), (.command // ""), (.if // ""), (.args // [])] | @json;
 def dedupe_hooks:
   reduce .[] as $hook ([];
-    ($hook.command // "") as $command |
-    if $command == "" then
+    ($hook | hook_key) as $key |
+    if ($hook.command // "") == "" then
       . + [$hook]
-    elif (map(.command // "") | index($command)) then
+    elif (map(hook_key) | index($key)) then
       .
     else
       . + [$hook]
@@ -197,7 +199,7 @@ def merge_hooks($desired):
             (.[$index].hooks // []) as $existing_hooks |
             $existing_hooks + (($group.hooks // []) | map(
               . as $hook |
-              select(($existing_hooks | map(.command // "") | index($hook.command // "")) == null)
+              select(($existing_hooks | map(hook_key) | index(($hook | hook_key))) == null)
             ))
           )
         end
@@ -243,12 +245,15 @@ settings_custom_count() {
     return
   fi
   jq -s '
-    ([.[1].hooks[][]?.hooks[]?.command] | unique) as $bootstrap |
+    def hook_key:
+      [(.type // ""), (.command // ""), (.if // ""), (.args // [])] | @json;
+    ([.[1].hooks[][]?.hooks[]? | hook_key] | unique) as $bootstrap |
     [
       .[0].hooks[][]?.hooks[]?
+      | . as $hook
       | (.command // "") as $command
       | select(($command | test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh") | not)
-          and (($bootstrap | index($command)) == null))
+          and (($bootstrap | index(($hook | hook_key))) == null))
     ] | length
   ' "$SETTINGS_FILE" "$HOOKS_FILE"
 }
@@ -267,7 +272,7 @@ settings_fingerprint_count() {
       | .value[]? as $group
       | ($group.matcher // "") as $matcher
       | $group.hooks[]?
-      | "\($event)\t\($matcher)\t\(.command // "")"
+      | "\($event)\t\($matcher)\t\(.if // "")\t\(.command // "")"
     ] | unique | length
   ' "$file"
 }
