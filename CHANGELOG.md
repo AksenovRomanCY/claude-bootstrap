@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Hardening release documentation for `/bootstrap`, `/harden --baseline`, `/harden --strict`, `/harden --baseline --sandbox`, `/harden --check`, `/harden --remove`, and `/doctor`
+- Destructive operations guidance rule and project hardening profiles for baseline, strict, and explicit sandbox overlay workflows
+- Unified `command_guard` hook documentation for Bash, Write/Edit secret checks, large-file checks, and post-write warnings
+- Installer migration, managed hardening state, rollback commands, `/doctor` hardening diagnostics, and CI matrix coverage for owned guard/profile logic
+
+### Changed
+- Documented hardening responsibility boundaries: rules guide behavior, permissions provide native static controls, hooks add contextual checks, Claude Code owns command matching and sandbox runtime, and external guard integration remains optional future work
+- Documented hardening limitations, including editable project settings, native Windows sandbox limits, non-goals around full Bash AST parsing, and the need for CI secret scanning
+
 ## [1.3.0] — 2026-03-31
 
 ### Added

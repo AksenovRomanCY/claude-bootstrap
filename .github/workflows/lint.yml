@@ -81,6 +81,7 @@ jobs:
           bash tests/test-hardening-profiles.sh
           bash tests/test-harden-skill.sh
           bash tests/test-doctor-skill.sh
+          bash tests/test-docs-hardening.sh
 
   python-tests:
     name: Python Tests (${{ matrix.os }}, py${{ matrix.python-version }})

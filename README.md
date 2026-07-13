@@ -43,11 +43,14 @@ cd ~/claude-bootstrap && ./install.sh
 ```bash
 cd ~/your-project
 
-/bootstrap           # Detects stack, copies rules to .claude/rules/
-/harden              # Applies baseline permissions and security policy
-/harden --strict     # Applies stricter prompts and guard policy
+/bootstrap                  # Detects stack, copies rules to .claude/rules/
+/harden --baseline          # Applies baseline permissions and security policy
+/harden --strict            # Applies stricter prompts and guard policy
 /harden --baseline --sandbox # Opts in to Claude Code's built-in Bash sandbox
-/init                # Generates CLAUDE.md from project analysis
+/harden --check             # Checks managed hardening drift without writing
+/harden --remove            # Removes claude-bootstrap managed hardening
+/doctor                     # Reports install, project, policy, and sandbox status
+/init                       # Generates CLAUDE.md from project analysis
 ```
 
 > **Plugin users:** commands are namespaced — `/claude-bootstrap:bootstrap`, `/claude-bootstrap:init`, etc.
@@ -69,6 +72,16 @@ Plugin or install.sh               In any project
 
 **Global** — skills, agents, hooks. Personal workflow tools, available everywhere.
 **Per-project** — coding rules. Copied by `/bootstrap`, committed to git, shared with team.
+
+### Hardening Responsibility Model
+
+| Layer | Responsibility |
+| --- | --- |
+| Rules | Behavioral guidance for Claude |
+| Permissions | Native static `ask`/`deny` controls in Claude Code settings |
+| Hooks | Project-specific contextual checks for commands and writes |
+| Claude Code | Command matching, permissions runtime, hook runtime, and sandbox runtime |
+| External guard | Optional future advanced analysis, not part of baseline or strict |
 
 ---
 
@@ -143,9 +156,11 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 
 ## Hardening
 
-`/harden` applies the baseline profile to the current project after showing a preview and asking for confirmation. `/harden --strict` applies the stricter profile for projects that can tolerate more permission prompts. Both profiles create or update `.claude/settings.json`, create `.claude/security-policy.json` when missing, write `.claude/harden-state.json`, and install `common/destructive-operations.md` without running `/bootstrap`.
+`/harden` applies the baseline profile to the current project after showing a preview and asking for confirmation. `/harden --baseline` is explicit baseline mode, and `/harden --strict` applies the stricter profile for projects that can tolerate more permission prompts. Both profiles create or update `.claude/settings.json`, create `.claude/security-policy.json` when missing, write `.claude/harden-state.json`, and install `common/destructive-operations.md` without running `/bootstrap`.
 
-`/harden --remove` uses `.claude/harden-state.json` to remove only settings that claude-bootstrap added. User permission rules, hooks, custom policy changes, and `.claude/rules/` are preserved; modified managed values are reported as conflicts unless the user explicitly asks for `--force`.
+`/harden --check` is read-only and reports drift between the current project and the managed profile. `/doctor` is also read-only; it reports installation health, active hooks, project policy, managed state, profile drift, legacy hooks, and sandbox configuration status.
+
+`/harden --remove` rolls back only settings and policy defaults recorded in `.claude/harden-state.json`. User permission rules, hooks, custom policy changes, and `.claude/rules/` are preserved; modified managed values are reported as conflicts unless the user explicitly asks for `--force`. `/harden --remove-sandbox` removes only the managed sandbox overlay and leaves baseline or strict hardening in place.
 
 `plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
 
@@ -166,6 +181,16 @@ Sandbox may break commands that need credentials or external resources, includin
 | Sandbox | Not enabled | Not enabled |
 
 Hardening profiles are not applied automatically. Broad context-sensitive commands such as `rm`, `git reset`, `git clean`, and `sudo` are intentionally left out of static deny rules; they need context-aware hooks instead.
+
+### Hardening Limitations
+
+- Rules are behavioral guidance, not a security boundary.
+- Project `.claude/settings.json` can be changed in a checkout; enterprise enforcement requires managed settings outside this repository.
+- claude-bootstrap does not implement its own sandbox runtime; Claude Code owns command matching, permissions, hooks, and sandbox execution.
+- Claude Code's built-in Bash sandbox is not supported on native Windows; use WSL2, a container, macOS, or Linux.
+- `command_guard` is not a complete Bash AST security parser; embedded scripts such as downloaded shell scripts still need review.
+- Hardening does not replace CI secret scanning or dependency/security review.
+- Strict mode creates additional permission prompts by design.
 
 ---
 
