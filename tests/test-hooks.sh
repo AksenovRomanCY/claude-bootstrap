@@ -81,6 +81,18 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   else
     fail "$(basename "$config") should not reference block-no-verify.sh"
   fi
+
+  if jq -e '[.hooks.PostToolUse[]? | select(.matcher == "Edit|Write") | .hooks[]?.command] | any(contains("post_write_warnings.py"))' "$config" > /dev/null; then
+    pass "$(basename "$config") uses post_write_warnings.py"
+  else
+    fail "$(basename "$config") should use post_write_warnings.py"
+  fi
+
+  if jq -e '[.hooks.PostToolUse[]? | .hooks[]?.command] | any(contains("warn-secrets.sh") or contains("warn-debug-code.sh")) | not' "$config" > /dev/null; then
+    pass "$(basename "$config") has no active legacy warning hooks"
+  else
+    fail "$(basename "$config") should not reference legacy warning hooks"
+  fi
 done
 
 echo ""
@@ -138,49 +150,48 @@ expect_hook_pass "block-no-verify.sh" "$INPUT" "non-Bash tool"
 echo ""
 
 # --------------------------------------------------
-echo "warn-debug-code.sh"
+echo "post_write_warnings.py"
 # --------------------------------------------------
 
 # Should warn: console.log
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"console.log(\"debug\")"}}'
-OUTPUT=$(run_hook "warn-debug-code.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && pass "console.log triggers warning" || fail "console.log should warn"
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"console.log(\"debug\")"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[DEBUG-CONSOLE]")' > /dev/null && pass "console.log triggers warning" || fail "console.log should warn"
 
 # Should warn: Python print()
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.py","content":"  print(\"hello\")"}}'
-OUTPUT=$(run_hook "warn-debug-code.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && pass "print() triggers warning" || fail "print() should warn"
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.py","content":"  print(\"hello\")"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[DEBUG-PRINT]")' > /dev/null && pass "print() triggers warning" || fail "print() should warn"
 
 # Should not warn: clean code
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"const x = 1;\nreturn x;"}}'
-OUTPUT=$(run_hook "warn-debug-code.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && fail "clean code should not warn" || pass "clean code no warning"
-
-echo ""
-
-# --------------------------------------------------
-echo "warn-secrets.sh"
-# --------------------------------------------------
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"const x = 1;\nreturn x;"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | grep -q "." && fail "clean code should not warn" || pass "clean code no warning"
 
 # Should warn: AWS key
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/config.ts","content":"const key = \"AKIAIOSFODNN7EXAMPLE\""}}'
-OUTPUT=$(run_hook "warn-secrets.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && pass "AWS key triggers warning" || fail "AWS key should warn"
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/config.ts","content":"const key = \"AKIA1234567890ABCDEF\""}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[SECRET-AWS-ACCESS-KEY]")' > /dev/null && pass "AWS key triggers warning" || fail "AWS key should warn"
 
 # Should warn: private key
-INPUT=$(jq -n '{"tool_name":"Write","tool_input":{"file_path":"/tmp/key.pem","content":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA"}}')
-OUTPUT=$(run_hook "warn-secrets.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && pass "private key triggers warning" || fail "private key should warn"
+INPUT=$(jq -n '{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/key.pem","content":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"}}')
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[SECRET-PRIVATE-KEY]")' > /dev/null && pass "private key triggers warning" || fail "private key should warn"
 
-# Should skip: .env file
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/.env","content":"API_KEY=sk-secret123456789012345678"}}'
-OUTPUT=$(run_hook "warn-secrets.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && fail ".env file should be skipped" || pass ".env file skipped"
+# Should warn: CI workflow change
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":".github/workflows/lint.yml","content":"jobs:\n  test:\n"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[POST-CI-WORKFLOW]")' > /dev/null && pass "CI workflow triggers warning" || fail "CI workflow should warn"
 
-# Should not warn: clean code
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/app.ts","content":"const port = 3000;\napp.listen(port);"}}'
-OUTPUT=$(run_hook "warn-secrets.sh" "$INPUT" 2>&1)
-echo "$OUTPUT" | grep -q "WARNING" && fail "clean code should not warn" || pass "clean code no warning"
+# Should warn: migration change
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"db/migrations/001.sql","content":"CREATE TABLE users(id int);"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[POST-MIGRATION]")' > /dev/null && pass "migration triggers warning" || fail "migration should warn"
+
+# PostToolUse should not deny after a write
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/config.ts","content":"const key = \"AKIA1234567890ABCDEF\""}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/post_write_warnings.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput | has("permissionDecision") | not' > /dev/null && pass "post-write warnings never deny" || fail "post-write warnings should not deny"
 
 echo ""
 

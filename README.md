@@ -106,8 +106,7 @@ Run automatically — no manual invocation needed.
 | `secret_guard` | Write, Edit | Ask or block before writing high-confidence secrets |
 | `large_file_policy` | Write, Edit | Warn or ask on large-file creation/growth using `.claude/security-policy.json` thresholds |
 | `command_guard` | Bash | Guard destructive Git, filesystem, infrastructure, and publication operations |
-| `warn-debug-code` | Edit, Write | Warn on `console.log`, `print()`, `debugger` |
-| `warn-secrets` | Edit, Write | Warn on hardcoded API keys, tokens, passwords |
+| `post_write_warnings` | Edit, Write | Warn after writes for secrets, debug code, generated files, CI workflows, migrations, and TODO/FIXME markers |
 | `remind-compact` | Edit, Write | Remind to `/compact` every 50 actions |
 
 ---
