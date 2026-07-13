@@ -19,7 +19,7 @@ Run a health check on the claude-bootstrap installation.
    - Report: `CURRENT` / `OUTDATED` / `NOT INSTALLED`
 
 2. **Check rules library** — verify files exist in `~/.claude/bootstrap-rules/`:
-   - Common (9 files): `common/coding-style.md`, `common/database.md`, `common/dependencies.md`, `common/documentation.md`, `common/error-handling.md`, `common/git-workflow.md`, `common/linting.md`, `common/security.md`, `common/testing.md`
+   - Common (10 files): `common/coding-style.md`, `common/database.md`, `common/dependencies.md`, `common/destructive-operations.md`, `common/documentation.md`, `common/error-handling.md`, `common/git-workflow.md`, `common/linting.md`, `common/security.md`, `common/testing.md`
    - Language-specific: `typescript/conventions.md`, `python/conventions.md`, `golang/conventions.md`
    - Report per file: `OK` / `MISSING`
    - Note: these are the source library, not active rules. Active rules live in each project's `.claude/rules/`
@@ -48,7 +48,7 @@ Run a health check on the claude-bootstrap installation.
    claude-bootstrap doctor
    ========================
    Version:    1.0.0 (current)
-   Rules lib:  9/9 common, 3/3 language — OK
+   Rules lib:  10/10 common, 3/3 language — OK
    Templates:  11/11 — OK
    Agents:     4/4 — OK
    Skills:     11/11 — OK

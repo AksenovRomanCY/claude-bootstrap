@@ -25,7 +25,7 @@ Set up `.claude/rules/` in the current project by detecting its stack and copyin
    Detected stack: typescript, python
 
    Rules to install:
-     common/         9 files (coding-style, testing, security, ...)
+     common/         10 files (coding-style, testing, security, destructive-operations, ...)
      typescript/     1 file  (conventions)
      python/         1 file  (conventions)
 
@@ -34,7 +34,7 @@ Set up `.claude/rules/` in the current project by detecting its stack and copyin
    Ask the user to confirm before proceeding.
 
 4. **Copy rules** — from `~/.claude/bootstrap-rules/` to `./.claude/rules/`:
-   - **Always** copy `common/` — these are universal (coding-style, testing, git-workflow, security, error-handling, database, dependencies, documentation, linting)
+   - **Always** copy `common/` — these are universal (coding-style, testing, git-workflow, security, error-handling, database, dependencies, documentation, linting, destructive-operations)
    - Copy language-specific directories only for detected languages
    - If `.claude/rules/` already has files, warn and ask before overwriting
 
@@ -60,6 +60,8 @@ If `$ARGUMENTS` contains `--update`, skip stack detection and update existing ru
 1. **Read** `.claude/rules/` to find which language directories are present
 2. **Compare** each file with `~/.claude/bootstrap-rules/` and show changes
 3. **Copy** updated files from library, preserving the existing language selection
+   - For directories that already exist in `.claude/rules/`, copy any new files from the matching library directory too
+   - This means existing projects with `common/` receive newly added common rules such as `destructive-operations.md`
 4. Do NOT add or remove language rules — only refresh what's already there
 5. Show summary: "N files updated, M unchanged"
 

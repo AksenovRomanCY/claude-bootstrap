@@ -114,12 +114,14 @@ Run automatically — no manual invocation needed.
 ## Rules
 
 Installed to each project via `/bootstrap`. Common rules apply to all languages.
+Rules guide Claude's behavior; they are not a technical security boundary.
 
 | Rule | What it enforces |
 | --- | --- |
 | `coding-style.md` | Immutability, function size (&le;50 lines), naming, imports |
 | `testing.md` | AAA pattern, 80%+ coverage for business logic, test independence |
 | `git-workflow.md` | Conventional commits, branch naming, PR process |
+| `destructive-operations.md` | Approval-first workflow for risky Git, filesystem, infra, database, publication, and secret operations |
 | `security.md` | No hardcoded secrets, input validation, CSRF, rate limiting |
 | `error-handling.md` | Custom errors, no silent catches, safe user messages |
 | `database.md` | Parameterized queries, N+1 prevention, migrations in VCS |
