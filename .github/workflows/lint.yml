@@ -76,3 +76,13 @@ jobs:
         run: sudo apt-get install -y jq
       - name: Run hardening profile tests
         run: bash tests/test-hardening-profiles.sh
+
+  test-apply-profile:
+    name: Apply Profile Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python files
+        run: python3 -m compileall plugin/hardening/apply_profile.py tests/test_apply_profile.py
+      - name: Run apply profile tests
+        run: python3 -m unittest tests/test_apply_profile.py
