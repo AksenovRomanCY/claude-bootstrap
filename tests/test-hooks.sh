@@ -19,6 +19,23 @@ run_hook() {
   return "${PIPESTATUS[1]}"
 }
 
+bash_input() {
+  local command=$1
+  jq -n --arg command "$command" '{"tool_name":"Bash","tool_input":{"command":$command}}'
+}
+
+expect_hook_block() {
+  local hook=$1 input=$2 label=$3
+  run_hook "$hook" "$input" > /dev/null 2>&1 && fail "$label should block" || {
+    [[ $? -eq 2 ]] && pass "$label blocks (exit 2)" || fail "$label wrong exit code"
+  }
+}
+
+expect_hook_pass() {
+  local hook=$1 input=$2 label=$3
+  run_hook "$hook" "$input" > /dev/null 2>&1 && pass "$label passes" || fail "$label should pass"
+}
+
 echo "=== Hook Tests ==="
 echo ""
 
@@ -47,19 +64,28 @@ echo ""
 echo "block-no-verify.sh"
 # --------------------------------------------------
 
-# Should block: git commit --no-verify
-INPUT='{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m test"}}'
-run_hook "block-no-verify.sh" "$INPUT" > /dev/null 2>&1 && fail "no-verify should block" || {
-  [[ $? -eq 2 ]] && pass "git --no-verify blocks (exit 2)" || fail "no-verify wrong exit code"
-}
+# Should block: git commit/push hook bypass
+expect_hook_block "block-no-verify.sh" "$(bash_input "git commit --no-verify -m test")" "git commit --no-verify"
+expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -m test --no-verify")" "git commit trailing --no-verify"
+expect_hook_block "block-no-verify.sh" "$(bash_input "git --no-pager commit --no-verify")" "git --no-pager commit --no-verify"
+expect_hook_block "block-no-verify.sh" "$(bash_input "git push origin main --no-verify")" "git push --no-verify"
+expect_hook_block "block-no-verify.sh" "$(bash_input "HUSKY=0 git commit -m test")" "HUSKY=0 git commit"
+expect_hook_block "block-no-verify.sh" "$(bash_input "HUSKY=0 git push origin main")" "HUSKY=0 git push"
+expect_hook_block "block-no-verify.sh" "$(bash_input "SKIP=pre-commit git commit -m test")" "SKIP git commit"
+expect_hook_block "block-no-verify.sh" "$(bash_input "SKIP=pre-commit git push origin main")" "SKIP git push"
+expect_hook_block "block-no-verify.sh" "$(bash_input "echo ok && git commit --no-verify -m test")" "compound git commit --no-verify"
 
-# Should pass: normal git commit
-INPUT='{"tool_name":"Bash","tool_input":{"command":"git commit -m test"}}'
-run_hook "block-no-verify.sh" "$INPUT" > /dev/null 2>&1 && pass "normal git commit passes" || fail "normal git commit should pass"
+# Should pass: unrelated --no-verify usage
+expect_hook_pass "block-no-verify.sh" "$(bash_input "git commit -m test")" "normal git commit"
+expect_hook_pass "block-no-verify.sh" "$(bash_input "git commit -m \"--no-verify\"")" "quoted commit message"
+expect_hook_pass "block-no-verify.sh" "$(bash_input "echo \"--no-verify\"")" "echo --no-verify"
+expect_hook_pass "block-no-verify.sh" "$(bash_input "grep -- \"--no-verify\" README.md")" "grep --no-verify"
+expect_hook_pass "block-no-verify.sh" "$(bash_input "git log --grep=\"--no-verify\"")" "git log --grep no-verify"
+expect_hook_pass "block-no-verify.sh" "$(bash_input "some-tool --no-verify")" "some-tool --no-verify"
 
 # Should pass: non-Bash tool
 INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"hello"}}'
-run_hook "block-no-verify.sh" "$INPUT" > /dev/null 2>&1 && pass "non-Bash tool passes" || fail "non-Bash tool should pass"
+expect_hook_pass "block-no-verify.sh" "$INPUT" "non-Bash tool"
 
 echo ""
 
