@@ -152,17 +152,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "externalGuard": {
-          "description": "Extension point metadata for future external guard integrations.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "enabled": {
-              "description": "Whether the profile opts in to external guard extension points.",
-              "type": "boolean"
-            }
-          }
         }
       }
     },

@@ -85,7 +85,6 @@ def strict_policy_workspace(policy=None):
             "commandGuard": {
                 "parserUncertainty": "ask",
                 "unknownEnvironment": "high-risk",
-                "externalGuard": {"enabled": True},
             },
             "database": {
                 "destructiveOperations": "deny",

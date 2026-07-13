@@ -148,7 +148,7 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 
 `plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
 
-`plugin/hardening/profiles/strict.settings.json` builds on the same architecture with additional static prompts and deny rules. `plugin/hardening/defaults/strict-policy.json` also asks on parser uncertainty, treats unknown environment context as high risk for production-sensitive operations, lowers large-file thresholds, and denies high-confidence destructive database commands.
+`plugin/hardening/profiles/strict.settings.json` builds on the same architecture with additional static prompts and deny rules. `plugin/hardening/defaults/strict-policy.json` also asks on parser uncertainty, treats unknown environment context as high risk for production-sensitive operations, lowers large-file thresholds, and denies high-confidence destructive database commands. External guard integrations are intentionally outside baseline and strict.
 
 | Behavior | Baseline | Strict |
 | --- | --- | --- |
@@ -157,7 +157,7 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 | Infrastructure operations | Prompt or deny when production is detected | More prompts; unknown environment is high risk |
 | Destructive database commands | No static profile decision | Deny high-confidence destructive CLI operations |
 | Large files | Standard thresholds | Lower thresholds |
-| External guard extension point | Not enabled | Opt-in metadata only |
+| External guard | Not enabled | Not enabled |
 | Sandbox | Not enabled | Not enabled |
 
 Hardening profiles are not applied automatically. Broad context-sensitive commands such as `rm`, `git reset`, `git clean`, and `sudo` are intentionally left out of static deny rules; they need context-aware hooks instead.

@@ -46,10 +46,7 @@
       "kubectl",
       "helm",
       "package-publish"
-    ],
-    "externalGuard": {
-      "enabled": true
-    }
+    ]
   },
   "database": {
     "destructiveOperations": "deny"

@@ -127,7 +127,7 @@ assert_jq_true_path "$STRICT" 'has("sandbox") | not' "strict does not enable san
 assert_jq_true_path "$STRICT_POLICY" '.profile == "strict"' "strict policy identifies strict profile"
 assert_jq_true_path "$STRICT_POLICY" '.commandGuard.parserUncertainty == "ask"' "strict policy asks on parser uncertainty"
 assert_jq_true_path "$STRICT_POLICY" '.commandGuard.unknownEnvironment == "high-risk"' "strict policy treats unknown environment as high risk"
-assert_jq_true_path "$STRICT_POLICY" '.commandGuard.externalGuard.enabled == true' "strict policy exposes external guard extension point"
+assert_jq_true_path "$STRICT_POLICY" '(.commandGuard | has("externalGuard") | not)' "strict policy does not enable external guard"
 assert_jq_true_path "$STRICT_POLICY" '.database.destructiveOperations == "deny"' "strict policy denies destructive database operations"
 assert_jq_true_path "$STRICT_POLICY" 'has("sandbox") | not' "strict policy does not enable sandbox"
 
