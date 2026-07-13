@@ -50,6 +50,8 @@ jobs:
         run: jq empty plugin/hardening/profiles/*.json
       - name: Validate hardening policies
         run: jq empty plugin/hardening/defaults/*.json plugin/hardening/security-policy.schema.json
+      - name: Validate test fixtures
+        run: jq empty tests/fixtures/*.json
 
   test-hooks:
     name: Hook Tests

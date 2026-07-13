@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS="$SCRIPT_DIR/plugin/hooks/scripts"
+PLUGIN_HOOKS_JSON="$SCRIPT_DIR/plugin/hooks/hooks.json"
+SETTINGS_HOOKS_JSON="$SCRIPT_DIR/plugin/settings-hooks.json"
 PASSED=0
 FAILED=0
 
@@ -37,6 +39,26 @@ expect_hook_pass() {
 }
 
 echo "=== Hook Tests ==="
+echo ""
+
+# --------------------------------------------------
+echo "hook configuration"
+# --------------------------------------------------
+
+for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
+  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(contains("command_guard.py"))' "$config" > /dev/null; then
+    pass "$(basename "$config") uses command_guard.py"
+  else
+    fail "$(basename "$config") should use command_guard.py"
+  fi
+
+  if jq -e '[.hooks.PreToolUse[]? | .hooks[]?.command] | any(contains("block-no-verify.sh")) | not' "$config" > /dev/null; then
+    pass "$(basename "$config") has no active block-no-verify.sh"
+  else
+    fail "$(basename "$config") should not reference block-no-verify.sh"
+  fi
+done
+
 echo ""
 
 # --------------------------------------------------

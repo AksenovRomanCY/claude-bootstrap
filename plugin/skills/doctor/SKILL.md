@@ -32,10 +32,11 @@ Run a health check on the claude-bootstrap installation.
    - `commit`, `pr`, `verify`, `explain`, `fix-build`, `init`, `test`, `changelog`, `deps-check`, `doctor`, `bootstrap`
    - Report per skill: `OK` / `MISSING`
 
-5. **Check hooks** — verify scripts in `~/.claude/hooks/scripts/`:
-   - Files: `block-large-files.sh`, `block-no-verify.sh`, `warn-debug-code.sh`, `warn-secrets.sh`, `remind-compact.sh`
-   - Verify each is executable (`test -x`)
-   - Report per script: `OK` / `MISSING` / `NOT EXECUTABLE`
+5. **Check hooks** — verify files in `~/.claude/hooks/`:
+   - Scripts: `block-large-files.sh`, `command_guard.py`, `block-no-verify.sh`, `warn-debug-code.sh`, `warn-secrets.sh`, `remind-compact.sh`
+   - Guard modules: `guard/__init__.py`, `guard/context.py`, `guard/decisions.py`, `guard/git.py`, `guard/rules.py`, `guard/shell.py`
+   - Verify `.sh` scripts are executable (`test -x`)
+   - Report per file: `OK` / `MISSING` / `NOT EXECUTABLE`
 
 6. **Check settings.json hooks** — read `~/.claude/settings.json`:
    - Verify `.hooks` key exists
@@ -52,7 +53,7 @@ Run a health check on the claude-bootstrap installation.
    Templates:  11/11 — OK
    Agents:     4/4 — OK
    Skills:     11/11 — OK
-   Hooks:      5/5 scripts, all executable — OK
+   Hooks:      12/12 files, shell scripts executable — OK
    Settings:   hooks configured — OK
    ========================
    Overall: OK

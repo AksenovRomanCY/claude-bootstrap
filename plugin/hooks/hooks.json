@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/block-no-verify.sh"
+            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\""
           }
         ]
       }

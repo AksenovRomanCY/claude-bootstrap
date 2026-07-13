@@ -30,6 +30,7 @@ Installs to ~/.claude/:
   skills/              Skills (/commit, /pr, /verify, /bootstrap, etc.)
   agents/              Agents (/plan, /review, /security, /refactor)
   hooks/scripts/       Hook enforcement scripts
+  hooks/guard/         Python hook guard modules
   bootstrap-rules/     Rules library (used by /bootstrap per-project)
   bootstrap-templates/ CLAUDE.md templates (used by /init)
 
@@ -139,6 +140,7 @@ echo "Changes:"
 
 should_install "agents" && diff_component "$SOURCE/agents" "$TARGET/agents"
 should_install "hooks" && diff_component "$SOURCE/hooks/scripts" "$TARGET/hooks/scripts"
+should_install "hooks" && diff_component "$SOURCE/hooks/guard" "$TARGET/hooks/guard"
 should_install "skills" && diff_component "$SOURCE/skills" "$TARGET/skills"
 should_install "rules" && diff_component "$SOURCE/rules" "$TARGET/bootstrap-rules"
 diff_component "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates"
@@ -195,6 +197,7 @@ copy_dir() {
 should_install "agents" && copy_dir "$SOURCE/agents" "$TARGET/agents" "agents"
 if should_install "hooks"; then
   copy_dir "$SOURCE/hooks/scripts" "$TARGET/hooks/scripts" "hooks/scripts"
+  copy_dir "$SOURCE/hooks/guard" "$TARGET/hooks/guard" "hooks/guard"
   chmod +x "$TARGET/hooks/scripts/"*.sh 2>/dev/null || true
 fi
 should_install "skills" && copy_dir "$SOURCE/skills" "$TARGET/skills" "skills"

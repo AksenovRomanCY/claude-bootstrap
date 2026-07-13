@@ -37,7 +37,7 @@ echo ""
 FILES_TO_REMOVE=()
 
 # Global components: agents, hooks, skills (direct path match)
-for dir in agents hooks/scripts skills; do
+for dir in agents hooks/scripts hooks/guard skills; do
   if [[ ! -d "$SOURCE/$dir" ]]; then continue; fi
   while IFS= read -r src_file; do
     rel="${src_file#"$SOURCE"/}"
@@ -142,7 +142,7 @@ fi
 # --- Phase 4: Remove empty directories ---
 for dir in skills/commit skills/pr skills/verify skills/explain skills/fix-build \
            skills/init skills/test skills/changelog skills/deps-check skills/doctor \
-           skills/bootstrap skills hooks/scripts hooks agents \
+           skills/bootstrap skills hooks/scripts hooks/guard hooks agents \
            bootstrap-rules/common bootstrap-rules/typescript \
            bootstrap-rules/python bootstrap-rules/golang bootstrap-rules \
            bootstrap-templates; do

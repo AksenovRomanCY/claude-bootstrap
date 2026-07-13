@@ -2,7 +2,9 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -10,12 +12,14 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS_DIR = ROOT / "plugin" / "hooks"
 COMMAND_GUARD = HOOKS_DIR / "scripts" / "command_guard.py"
-FIXTURES = ROOT / "tests" / "fixtures" / "bash-commands.json"
+BASH_FIXTURES = ROOT / "tests" / "fixtures" / "bash-commands.json"
+GIT_FIXTURES = ROOT / "tests" / "fixtures" / "git-commands.json"
 
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 from guard.decisions import Decision, DecisionKind, combine
+from guard.git import load_git_context
 from guard.shell import parse
 
 spec = importlib.util.spec_from_file_location("command_guard", COMMAND_GUARD)
@@ -25,15 +29,40 @@ sys.modules["command_guard"] = command_guard
 spec.loader.exec_module(command_guard)
 
 
-def bash_payload(command):
+def bash_payload(command, cwd=ROOT):
     return {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {
             "command": command,
         },
-        "cwd": str(ROOT),
+        "cwd": str(cwd),
     }
+
+
+@contextmanager
+def prepared_git_workspace(fixture):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cwd = Path(tmpdir)
+
+        if fixture.get("repo", True):
+            subprocess.run(["git", "init"], cwd=cwd, text=True, capture_output=True, check=True)
+            branch = fixture.get("branch", "main")
+            subprocess.run(["git", "checkout", "-b", branch], cwd=cwd, text=True, capture_output=True, check=True)
+
+            protected_branches = fixture.get("protectedBranches")
+            if protected_branches is not None:
+                policy_dir = cwd / ".claude"
+                policy_dir.mkdir()
+                (policy_dir / "security-policy.json").write_text(
+                    json.dumps({"version": 1, "protectedBranches": protected_branches}),
+                    encoding="utf-8",
+                )
+
+            if fixture.get("dirty", False):
+                (cwd / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+        yield cwd
 
 
 class CommandGuardTests(unittest.TestCase):
@@ -131,7 +160,7 @@ class CommandGuardTests(unittest.TestCase):
         stderr.write.assert_called()
 
     def test_parser_fixtures(self):
-        fixtures = json.loads(FIXTURES.read_text(encoding="utf-8"))
+        fixtures = json.loads(BASH_FIXTURES.read_text(encoding="utf-8"))
 
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
@@ -149,6 +178,44 @@ class CommandGuardTests(unittest.TestCase):
 
                 self.assertEqual(actual_segments, fixture["segments"])
                 self.assertEqual(parsed.unsupported, fixture["unsupported"])
+
+    def test_git_decision_fixtures(self):
+        fixtures = json.loads(GIT_FIXTURES.read_text(encoding="utf-8"))
+
+        for fixture in fixtures:
+            with self.subTest(fixture["name"]):
+                with prepared_git_workspace(fixture) as cwd:
+                    completed = self.run_guard(bash_payload(fixture["command"], cwd))
+
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(completed.stderr, "")
+                expected_decision = fixture["decision"]
+
+                if expected_decision == "none":
+                    self.assertEqual(completed.stdout, "")
+                    continue
+
+                output = json.loads(completed.stdout)
+                hook_output = output["hookSpecificOutput"]
+                self.assertEqual(hook_output["permissionDecision"], expected_decision)
+                self.assertIn(f"[{fixture['rule']}]", hook_output["permissionDecisionReason"])
+
+    def test_git_context_uses_only_read_only_commands(self):
+        allowed = {
+            ("git", "rev-parse", "--show-toplevel"),
+            ("git", "branch", "--show-current"),
+            ("git", "status", "--porcelain"),
+        }
+        seen = []
+
+        def fake_run(command, **kwargs):
+            seen.append(tuple(command))
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with mock.patch("guard.git.subprocess.run", side_effect=fake_run):
+            load_git_context(ROOT)
+
+        self.assertEqual(set(seen), allowed)
 
     def test_malformed_json_fails_open(self):
         completed = subprocess.run(

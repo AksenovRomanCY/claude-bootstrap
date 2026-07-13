@@ -1,0 +1,144 @@
+[
+  {
+    "name": "protected branch force push explicit",
+    "command": "git push --force origin main",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "protected branch force lease current",
+    "command": "git push --force-with-lease",
+    "branch": "main",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "custom protected branch from policy",
+    "command": "git push --force origin release",
+    "branch": "feature",
+    "protectedBranches": [
+      "release"
+    ],
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "feature branch force push asks",
+    "command": "git push --force origin feature",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-FORCE-PUSH"
+  },
+  {
+    "name": "feature branch force lease asks",
+    "command": "git push --force-with-lease",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-FORCE-PUSH"
+  },
+  {
+    "name": "unknown branch force push asks",
+    "command": "git push --force",
+    "repo": false,
+    "decision": "ask",
+    "rule": "GIT-FORCE-PUSH"
+  },
+  {
+    "name": "delete protected branch",
+    "command": "git branch -D main",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "stash clear denies",
+    "command": "git stash clear",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-STASH-CLEAR"
+  },
+  {
+    "name": "commit no verify denies",
+    "command": "git commit --no-verify -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "push no verify denies",
+    "command": "git push origin feature --no-verify",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "husky bypass commit denies",
+    "command": "HUSKY=0 git commit -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "skip bypass push denies",
+    "command": "SKIP=pre-commit git push origin feature",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "reset hard dirty denies",
+    "command": "git reset --hard",
+    "branch": "feature",
+    "dirty": true,
+    "decision": "deny",
+    "rule": "GIT-RESET-HARD"
+  },
+  {
+    "name": "reset hard clean asks",
+    "command": "git reset --hard",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-RESET-HARD"
+  },
+  {
+    "name": "clean force asks",
+    "command": "git clean -fdx",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-CLEAN-FORCE"
+  },
+  {
+    "name": "restore path asks",
+    "command": "git restore src/app.py",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-RESTORE"
+  },
+  {
+    "name": "checkout path asks",
+    "command": "git checkout -- src/app.py",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-CHECKOUT-PATH"
+  },
+  {
+    "name": "stash drop asks",
+    "command": "git stash drop stash@{0}",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-STASH-DROP"
+  },
+  {
+    "name": "commit message no verify does not deny",
+    "command": "git commit -m \"--no-verify\"",
+    "branch": "feature",
+    "decision": "none"
+  },
+  {
+    "name": "unrelated no verify does not deny",
+    "command": "grep -- \"--no-verify\" README.md",
+    "branch": "feature",
+    "decision": "none"
+  }
+]
