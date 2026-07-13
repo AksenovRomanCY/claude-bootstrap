@@ -46,6 +46,7 @@ cd ~/your-project
 /bootstrap           # Detects stack, copies rules to .claude/rules/
 /harden              # Applies baseline permissions and security policy
 /harden --strict     # Applies stricter prompts and guard policy
+/harden --baseline --sandbox # Opts in to Claude Code's built-in Bash sandbox
 /init                # Generates CLAUDE.md from project analysis
 ```
 
@@ -76,7 +77,7 @@ Plugin or install.sh               In any project
 | Command | Description | Auto |
 | --- | --- | --- |
 | `/bootstrap` | Set up `.claude/rules/` — detect stack, copy rules. `--update` to refresh | |
-| `/harden` | Apply project hardening. `--baseline` by default, `--strict` for stricter prompts, `--dry-run` to preview, `--check` to detect drift, `--remove` to remove managed settings | |
+| `/harden` | Apply project hardening. `--baseline` by default, `--strict` for stricter prompts, `--sandbox` to opt in to Claude Code's built-in Bash sandbox, `--dry-run` to preview, `--check` to detect drift, `--remove` and `--remove-sandbox` to remove managed settings | |
 | `/init` | Generate `CLAUDE.md` from project analysis. `--check` to validate existing | |
 | `/commit` | Stage changes, generate conventional commit message, commit | |
 | `/pr` | Create GitHub PR or GitLab MR with auto-generated description | |
@@ -149,6 +150,10 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 `plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
 
 `plugin/hardening/profiles/strict.settings.json` builds on the same architecture with additional static prompts and deny rules. `plugin/hardening/defaults/strict-policy.json` also asks on parser uncertainty, treats unknown environment context as high risk for production-sensitive operations, lowers large-file thresholds, and denies high-confidence destructive database commands. External guard integrations are intentionally outside baseline and strict.
+
+`/harden --baseline --sandbox` and `/harden --strict --sandbox` apply `plugin/hardening/profiles/sandbox.settings.json` as an explicit overlay for Claude Code's built-in Bash sandbox. The overlay writes only `.claude/settings.json` sandbox configuration, sets `failIfUnavailable`, disables unsandboxed fallback, and denies common credential files and environment variables to sandboxed commands. Native Windows is not supported by Claude Code's sandbox; use WSL2, a container, macOS, or Linux. `/harden --remove-sandbox` removes only sandbox entries managed by claude-bootstrap.
+
+Sandbox may break commands that need credentials or external resources, including `gh`, `kubectl`, AWS CLI, package publication, and private registry access. Use Claude Code's `/sandbox` for dependency and runtime diagnostics.
 
 | Behavior | Baseline | Strict |
 | --- | --- | --- |

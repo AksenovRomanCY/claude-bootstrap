@@ -44,7 +44,15 @@ Run a health check on the claude-bootstrap installation.
    - Verify `PostToolUse` has entries for `Edit|Write` matcher
    - Report: `OK` / `MISSING` / `PARTIAL`
 
-7. **Summary** — output a table:
+7. **Check project sandbox configuration** — read the current project's `.claude/settings.json` and `.claude/harden-state.json` if present:
+   - Report whether `sandbox.enabled` is present and true
+   - Report whether the current platform is supported by Claude Code's built-in Bash sandbox: macOS, Linux, or WSL2 supported; native Windows unsupported
+   - If sandbox is enabled, verify `sandbox.failIfUnavailable` is true and `sandbox.allowUnsandboxedCommands` is false
+   - Verify credential deny entries for `~/.ssh`, `~/.aws/credentials`, `~/.kube/config`, `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN`, and `PYPI_API_TOKEN`
+   - Report whether sandbox entries are managed by claude-bootstrap via `sandboxOverlay`, unmanaged/custom, missing, or partially drifted
+   - Do not perform runtime sandbox diagnostics; tell users to run Claude Code's `/sandbox` for dependency and runtime checks
+
+8. **Summary** — output a table:
    ```
    claude-bootstrap doctor
    ========================
@@ -55,6 +63,7 @@ Run a health check on the claude-bootstrap installation.
    Skills:     12/12 — OK
    Hooks:      18/18 files, shell scripts executable — OK
    Settings:   hooks configured — OK
+   Sandbox:    disabled / enabled managed / custom / drifted
    ========================
    Overall: OK
    ```

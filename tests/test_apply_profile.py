@@ -172,6 +172,132 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(conflicts, [])
         self.assertEqual(forced["sandbox"]["enabled"], True)
 
+    def test_applies_sandbox_overlay_with_baseline(self):
+        result = self.apply(sandbox=True)
+
+        self.assertTrue(result.changed)
+        settings = self.read_settings()
+        self.assertTrue(settings["sandbox"]["enabled"])
+        self.assertTrue(settings["sandbox"]["failIfUnavailable"])
+        self.assertFalse(settings["sandbox"]["allowUnsandboxedCommands"])
+        self.assertIn(
+            {"path": "~/.aws/credentials", "mode": "deny"},
+            settings["sandbox"]["credentials"]["files"],
+        )
+        self.assertIn(
+            {"name": "NPM_TOKEN", "mode": "deny"},
+            settings["sandbox"]["credentials"]["envVars"],
+        )
+        state = self.read_state()
+        self.assertEqual(state["appliedProfile"], "baseline")
+        self.assertTrue(state["sandboxOverlay"]["enabled"])
+        self.assertEqual(
+            state["sandboxOverlay"]["insertedSettings"]["scalars"]["sandbox.enabled"],
+            True,
+        )
+        self.assertIn(
+            {"path": "~/.ssh", "mode": "deny"},
+            state["sandboxOverlay"]["insertedSettings"]["sandbox.credentials.files"],
+        )
+
+    def test_sandbox_overlay_preserves_custom_credential_entries(self):
+        custom_file = {"path": "~/.custom-token", "mode": "deny"}
+        self.write_settings({"sandbox": {"credentials": {"files": [custom_file]}}})
+
+        self.apply(sandbox=True)
+
+        settings = self.read_settings()
+        self.assertIn(custom_file, settings["sandbox"]["credentials"]["files"])
+        state = self.read_state()
+        self.assertNotIn(
+            custom_file,
+            state["sandboxOverlay"]["insertedSettings"]["sandbox.credentials.files"],
+        )
+
+    def test_sandbox_overlay_conflicting_scalar_requires_force(self):
+        self.write_settings({"sandbox": {"enabled": False}})
+
+        result = self.apply(sandbox=True)
+
+        self.assertFalse(result.changed)
+        self.assertEqual(result.conflicts, ["sandbox.enabled"])
+        self.assertEqual(self.read_settings()["sandbox"]["enabled"], False)
+
+    def test_force_replaces_conflicting_sandbox_scalar(self):
+        self.write_settings({"sandbox": {"enabled": False}})
+
+        result = self.apply(sandbox=True, force=True)
+
+        self.assertTrue(result.changed)
+        self.assertTrue(self.read_settings()["sandbox"]["enabled"])
+        self.assertEqual(
+            self.read_state()["sandboxOverlay"]["insertedSettings"]["scalars"]["sandbox.enabled"],
+            True,
+        )
+
+    def test_repeated_sandbox_apply_is_idempotent(self):
+        self.apply(sandbox=True)
+        first = self.settings.read_text(encoding="utf-8")
+        state_first = (self.project / ".claude" / "harden-state.json").read_text(encoding="utf-8")
+
+        result = self.apply(sandbox=True)
+
+        self.assertFalse(result.changed)
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), first)
+        self.assertEqual((self.project / ".claude" / "harden-state.json").read_text(encoding="utf-8"), state_first)
+
+    def test_remove_sandbox_only_removes_sandbox_overlay(self):
+        self.apply(sandbox=True)
+
+        result = apply_profile.remove_sandbox_overlay(project_root=self.project)
+
+        self.assertTrue(result.changed)
+        settings = self.read_settings()
+        self.assertNotIn("sandbox", settings)
+        self.assertIn("permissions", settings)
+        state = self.read_state()
+        self.assertEqual(state["appliedProfile"], "baseline")
+        self.assertNotIn("sandboxOverlay", state)
+        self.assertTrue(self.policy.exists())
+
+    def test_remove_profile_removes_sandbox_overlay_too(self):
+        self.apply(sandbox=True)
+
+        self.remove()
+
+        self.assertNotIn("sandbox", self.read_settings())
+        self.assertFalse((self.project / ".claude" / "harden-state.json").exists())
+
+    def test_switch_profile_preserves_sandbox_overlay(self):
+        self.apply(sandbox=True)
+
+        result = self.apply("strict")
+
+        self.assertTrue(result.changed)
+        settings = self.read_settings()
+        self.assertTrue(settings["sandbox"]["enabled"])
+        self.assertIn("sandboxOverlay", self.read_state())
+
+    def test_native_windows_rejects_sandbox_overlay_before_write(self):
+        with mock.patch.object(apply_profile.sys, "platform", "win32"):
+            with self.assertRaises(apply_profile.ProfileError):
+                self.apply(sandbox=True)
+
+        self.assertFalse(self.settings.exists())
+        self.assertFalse((self.project / ".claude" / "harden-state.json").exists())
+
+    def test_sandbox_is_not_standalone_profile(self):
+        with self.assertRaisesRegex(apply_profile.ProfileError, "sandbox is an overlay"):
+            self.apply("sandbox")
+
+    def test_remove_rejects_sandbox_as_profile(self):
+        with self.assertRaisesRegex(apply_profile.ProfileError, "sandbox is an overlay"):
+            self.remove("sandbox")
+
+    def test_unknown_profile_has_clear_error(self):
+        with self.assertRaisesRegex(apply_profile.ProfileError, "unsupported profile 'custom'"):
+            self.apply("custom")
+
     def test_invalid_existing_json_fails_before_write(self):
         self.settings.parent.mkdir(parents=True, exist_ok=True)
         self.settings.write_text("{invalid", encoding="utf-8")
@@ -552,6 +678,20 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertIn("permissions.disableBypassPermissionsMode", completed.stderr)
         self.assertIn("Use --force", completed.stderr)
+
+    def test_cli_rejects_sandbox_as_profile(self):
+        completed = self.run_cli("--profile", "sandbox", "--dry-run")
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("sandbox is an overlay", completed.stderr)
+        self.assertNotIn("sandbox-policy.json", completed.stderr)
+
+    def test_cli_rejects_sandbox_profile_with_overlay_flag(self):
+        completed = self.run_cli("--profile", "sandbox", "--sandbox", "--dry-run")
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("sandbox is an overlay", completed.stderr)
+        self.assertNotIn("sandbox-policy.json", completed.stderr)
 
     def test_cli_applies_and_removes_strict_profile(self):
         completed = self.run_cli("--profile", "strict")

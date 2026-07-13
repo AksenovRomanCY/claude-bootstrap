@@ -13,10 +13,13 @@ Apply claude-bootstrap hardening to the current project.
 
 - `/harden`
 - `/harden --baseline`
+- `/harden --baseline --sandbox`
 - `/harden --strict`
+- `/harden --strict --sandbox`
 - `/harden --dry-run`
 - `/harden --check`
 - `/harden --remove`
+- `/harden --remove-sandbox`
 
 Default: `/harden` is the same as `/harden --baseline`.
 
@@ -24,10 +27,14 @@ Default: `/harden` is the same as `/harden --baseline`.
 
 1. **Parse arguments**
    - Treat no arguments as `--baseline`
-   - Allow only `--baseline`, `--strict`, `--dry-run`, `--check`, `--remove`, and explicit user-requested `--force`
+   - Allow only `--baseline`, `--strict`, `--sandbox`, `--dry-run`, `--check`, `--remove`, `--remove-sandbox`, and explicit user-requested `--force`
    - Set `PROFILE=baseline` for `/harden` or `--baseline`
    - Set `PROFILE=strict` for `--strict`
+   - Set `SANDBOX_FLAG=--sandbox` only when `$ARGUMENTS` contains `--sandbox`
+   - Allow `--sandbox` only with baseline or strict apply/check/dry-run flows
    - Do not allow `--baseline` and `--strict` together
+   - Do not allow `--sandbox` with `--remove` or `--remove-sandbox`
+   - Do not allow `--remove` and `--remove-sandbox` together
    - If another option is provided, explain that it is not supported yet and stop
 
 2. **Find the project root**
@@ -51,7 +58,7 @@ Default: `/harden` is the same as `/harden --baseline`.
 5. **Preview the profile**
    - Run:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --dry-run
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" $SANDBOX_FLAG --dry-run
      ```
    - Report the target files:
      - `.claude/settings.json`
@@ -64,6 +71,7 @@ Default: `/harden` is the same as `/harden --baseline`.
      - If missing, report it as new
      - If identical to the installed rule, report it as unchanged
      - If present and different, report a conflict and do not overwrite without explicit confirmation
+   - If `--sandbox` is set, warn that Claude Code's built-in Bash sandbox may break commands that need credentials or external resources, including `gh`, `kubectl`, AWS CLI, package publication, and private registry access
 
 6. **Dry-run mode**
    - If `$ARGUMENTS` contains `--dry-run`, stop after the preview
@@ -72,13 +80,24 @@ Default: `/harden` is the same as `/harden --baseline`.
 7. **Check mode**
    - If `$ARGUMENTS` contains `--check`, run:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --check
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" $SANDBOX_FLAG --check
      ```
    - Also check that `.claude/rules/common/destructive-operations.md` exists and matches the installed rule
    - Exit with a clear PASS/DRIFT summary
    - Do not write files
 
 8. **Remove mode**
+   - If `$ARGUMENTS` contains `--remove-sandbox`, preview sandbox overlay removal first:
+     ```bash
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --remove-sandbox --dry-run
+     ```
+   - Explain that `--remove-sandbox` removes only sandbox entries recorded in `.claude/harden-state.json`
+   - Ask for explicit confirmation before running:
+     ```bash
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --remove-sandbox
+     ```
+   - Use `--force` only when the user explicitly requested it
+   - Stop after remove-sandbox mode
    - If `$ARGUMENTS` contains `--remove`, preview removal first:
      ```bash
      cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove --dry-run
@@ -102,7 +121,7 @@ Default: `/harden` is the same as `/harden --baseline`.
 10. **Apply**
     - Run:
       ```bash
-      cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE"
+      cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" $SANDBOX_FLAG
       ```
     - Create `.claude/rules/common/`
     - Copy the installed `destructive-operations.md` rule into `.claude/rules/common/destructive-operations.md`
@@ -119,10 +138,11 @@ Default: `/harden` is the same as `/harden --baseline`.
 - Do not run `/bootstrap` automatically
 - Do not overwrite a custom `.claude/security-policy.json`; `apply_profile.py` preserves existing valid policies
 - Do not modify `.claude/settings.local.json`
-- Do not enable sandbox settings in this task
+- Enable sandbox settings only when `--sandbox` is explicit
 - Do not require DCG or external guard tooling
 - Do not use `--force` unless the user explicitly asks for a conflict override in a later workflow
 - Do not remove `.claude/rules/` during `--remove`
 - Strict profile may create more permission prompts than baseline, but it must not block the whole Bash tool
+- Sandbox configuration uses Claude Code's built-in Bash sandbox only; do not implement custom process, filesystem, network, container, credential, or Windows sandbox runtime
 
 $ARGUMENTS

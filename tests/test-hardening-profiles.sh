@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASELINE="$ROOT/plugin/hardening/profiles/baseline.settings.json"
 STRICT="$ROOT/plugin/hardening/profiles/strict.settings.json"
+SANDBOX="$ROOT/plugin/hardening/profiles/sandbox.settings.json"
 STRICT_POLICY="$ROOT/plugin/hardening/defaults/strict-policy.json"
 README="$ROOT/README.md"
 
@@ -70,6 +71,18 @@ else
   fail "strict profile has invalid JSON"
 fi
 
+if [[ -f "$SANDBOX" ]]; then
+  pass "sandbox overlay exists"
+else
+  fail "sandbox overlay missing"
+fi
+
+if jq empty "$SANDBOX" > /dev/null; then
+  pass "sandbox overlay is valid JSON"
+else
+  fail "sandbox overlay has invalid JSON"
+fi
+
 if [[ -f "$STRICT_POLICY" ]]; then
   pass "strict policy exists"
 else
@@ -124,6 +137,16 @@ assert_jq_true_path "$STRICT" '.permissions.ask | index("Bash(psql *)") != null'
 assert_jq_true_path "$STRICT" '[.permissions.deny[], .permissions.ask[]] | index("Bash(*)") == null' "strict does not block whole Bash tool"
 assert_jq_true_path "$STRICT" 'has("sandbox") | not' "strict does not enable sandbox"
 
+assert_jq_true_path "$SANDBOX" '.sandbox.enabled == true' "sandbox overlay enables sandbox"
+assert_jq_true_path "$SANDBOX" '.sandbox.failIfUnavailable == true' "sandbox overlay fails if unavailable"
+assert_jq_true_path "$SANDBOX" '.sandbox.allowUnsandboxedCommands == false' "sandbox overlay blocks unsandboxed fallback"
+assert_jq_true_path "$SANDBOX" '.sandbox.credentials.files | index({"path":"~/.ssh","mode":"deny"}) != null' "sandbox overlay denies ssh credential reads"
+assert_jq_true_path "$SANDBOX" '.sandbox.credentials.files | index({"path":"~/.aws/credentials","mode":"deny"}) != null' "sandbox overlay denies aws credential file reads"
+assert_jq_true_path "$SANDBOX" '.sandbox.credentials.files | index({"path":"~/.kube/config","mode":"deny"}) != null' "sandbox overlay denies kube config reads"
+assert_jq_true_path "$SANDBOX" '.sandbox.credentials.envVars | index({"name":"AWS_SECRET_ACCESS_KEY","mode":"deny"}) != null' "sandbox overlay denies aws secret env"
+assert_jq_true_path "$SANDBOX" '.sandbox.credentials.envVars | index({"name":"NPM_TOKEN","mode":"deny"}) != null' "sandbox overlay denies npm token env"
+assert_jq_true_path "$SANDBOX" '.sandbox.credentials.envVars | index({"name":"PYPI_API_TOKEN","mode":"deny"}) != null' "sandbox overlay denies pypi token env"
+
 assert_jq_true_path "$STRICT_POLICY" '.profile == "strict"' "strict policy identifies strict profile"
 assert_jq_true_path "$STRICT_POLICY" '.commandGuard.parserUncertainty == "ask"' "strict policy asks on parser uncertainty"
 assert_jq_true_path "$STRICT_POLICY" '.commandGuard.unknownEnvironment == "high-risk"' "strict policy treats unknown environment as high risk"
@@ -136,6 +159,8 @@ assert_contains "$README" "strict.settings.json" "README mentions strict profile
 assert_contains "$README" "| Behavior | Baseline | Strict |" "README contains baseline/strict comparison table"
 assert_contains "$README" "not applied automatically" "README explains baseline is not applied automatically"
 assert_contains "$README" "context-aware hooks" "README explains broad commands need context-aware hooks"
+assert_contains "$README" "sandbox.settings.json" "README mentions sandbox overlay file"
+assert_contains "$README" "/harden --baseline --sandbox" "README documents sandbox opt-in"
 
 echo ""
 echo "=== Results: $PASSED passed, $FAILED failed ==="

@@ -22,11 +22,19 @@ PERMISSION_LISTS = {
     ("permissions", "ask"),
     ("permissions", "deny"),
 }
+MANAGED_LISTS = {
+    *PERMISSION_LISTS,
+    ("sandbox", "credentials", "files"),
+    ("sandbox", "credentials", "envVars"),
+}
 MANAGED_BY = "claude-bootstrap"
 MANAGED_VERSION = 1
+BASE_PROFILES = {"baseline", "strict"}
 SCALAR_CONFLICTS = {
     ("permissions", "disableBypassPermissionsMode"),
     ("sandbox", "enabled"),
+    ("sandbox", "failIfUnavailable"),
+    ("sandbox", "allowUnsandboxedCommands"),
 }
 
 
@@ -58,6 +66,22 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
 
 def profile_path(profile: str) -> Path:
     return Path(__file__).resolve().parent / "profiles" / f"{profile}.settings.json"
+
+
+def sandbox_profile_path() -> Path:
+    return profile_path("sandbox")
+
+
+def validate_base_profile(profile_name: str) -> None:
+    if profile_name in BASE_PROFILES:
+        return
+    if profile_name == "sandbox":
+        raise ProfileError(
+            "sandbox is an overlay, not a standalone profile; "
+            "use --profile baseline --sandbox or --profile strict --sandbox"
+        )
+    supported = ", ".join(sorted(BASE_PROFILES))
+    raise ProfileError(f"unsupported profile '{profile_name}'; supported profiles: {supported}")
 
 
 def default_policy_path(profile: str) -> Path:
@@ -185,7 +209,7 @@ def merge_settings(
 
             target_value = target[key]
 
-            if child_path in PERMISSION_LISTS:
+            if child_path in MANAGED_LISTS:
                 if not isinstance(target_value, list) or not isinstance(source_value, list):
                     conflicts.append(".".join(child_path))
                     continue
@@ -271,7 +295,7 @@ def collect_inserted_settings(
             child_path = (*path, key)
             exists, existing_value = get_nested(existing, child_path)
 
-            if child_path in PERMISSION_LISTS:
+            if child_path in MANAGED_LISTS:
                 if not isinstance(source_value, list):
                     continue
                 existing_items = existing_value if exists and isinstance(existing_value, list) else []
@@ -292,16 +316,9 @@ def collect_inserted_settings(
     return inserted
 
 
-def merge_state(existing_state: dict[str, Any], new_state: dict[str, Any]) -> dict[str, Any]:
-    merged = copy.deepcopy(existing_state) if existing_state else {}
-    merged["managedBy"] = MANAGED_BY
-    merged["managedVersion"] = MANAGED_VERSION
-    merged["appliedProfile"] = new_state["appliedProfile"]
-
-    existing_inserted = merged.get("insertedSettings")
+def combine_inserted_settings(existing_inserted: Any, new_inserted: Any) -> dict[str, Any]:
     if not isinstance(existing_inserted, dict):
         existing_inserted = {}
-    new_inserted = new_state.get("insertedSettings", {})
     if not isinstance(new_inserted, dict):
         new_inserted = {}
 
@@ -319,14 +336,51 @@ def merge_state(existing_state: dict[str, Any], new_state: dict[str, Any]) -> di
         if isinstance(source, dict):
             scalars.update(copy.deepcopy(source))
     combined_inserted["scalars"] = scalars
-    merged["insertedSettings"] = combined_inserted
+    return combined_inserted
+
+
+def merge_state(existing_state: dict[str, Any], new_state: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(existing_state) if existing_state else {}
+    merged["managedBy"] = MANAGED_BY
+    merged["managedVersion"] = MANAGED_VERSION
+    merged["appliedProfile"] = new_state["appliedProfile"]
+
+    merged["insertedSettings"] = combine_inserted_settings(
+        merged.get("insertedSettings"),
+        new_state.get("insertedSettings"),
+    )
 
     if "managedPolicy" in new_state:
         merged["managedPolicy"] = copy.deepcopy(new_state["managedPolicy"])
     elif "managedPolicy" in existing_state:
         merged["managedPolicy"] = copy.deepcopy(existing_state["managedPolicy"])
 
+    if "sandboxOverlay" in new_state:
+        existing_overlay = merged.get("sandboxOverlay", {})
+        if not isinstance(existing_overlay, dict):
+            existing_overlay = {}
+        new_overlay = new_state["sandboxOverlay"]
+        if isinstance(new_overlay, dict):
+            overlay = copy.deepcopy(existing_overlay)
+            overlay["enabled"] = new_overlay.get("enabled", True)
+            overlay["insertedSettings"] = combine_inserted_settings(
+                existing_overlay.get("insertedSettings"),
+                new_overlay.get("insertedSettings"),
+            )
+            merged["sandboxOverlay"] = overlay
+
     return merged
+
+
+def state_preserving_sandbox(existing_state: dict[str, Any]) -> dict[str, Any]:
+    sandbox_overlay = existing_state.get("sandboxOverlay")
+    if not isinstance(sandbox_overlay, dict):
+        return {}
+    return {
+        "managedBy": MANAGED_BY,
+        "managedVersion": MANAGED_VERSION,
+        "sandboxOverlay": copy.deepcopy(sandbox_overlay),
+    }
 
 
 def load_state(project_root: Path) -> dict[str, Any]:
@@ -341,9 +395,8 @@ def load_state(project_root: Path) -> dict[str, Any]:
     return state
 
 
-def managed_settings_conflicts(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
+def inserted_settings_conflicts(inserted: dict[str, Any], settings: dict[str, Any]) -> list[str]:
     conflicts: list[str] = []
-    inserted = state.get("insertedSettings", {})
     if not isinstance(inserted, dict):
         return conflicts
 
@@ -364,6 +417,26 @@ def managed_settings_conflicts(state: dict[str, Any], settings: dict[str, Any]) 
                 conflicts.append(key)
 
     return conflicts
+
+
+def managed_settings_conflicts(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
+    return inserted_settings_conflicts(state.get("insertedSettings", {}), settings)
+
+
+def sandbox_overlay_conflicts(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
+    sandbox_overlay = state.get("sandboxOverlay")
+    if not isinstance(sandbox_overlay, dict):
+        return []
+    conflicts = inserted_settings_conflicts(sandbox_overlay.get("insertedSettings", {}), settings)
+    return [f"sandboxOverlay.{conflict}" for conflict in conflicts]
+
+
+def ensure_sandbox_supported() -> None:
+    if sys.platform == "win32":
+        raise ProfileError(
+            "sandbox overlay is not supported on native Windows; use WSL2, a container, "
+            "or a Claude Code sandbox-supported macOS/Linux environment"
+        )
 
 
 def format_json(data: dict[str, Any]) -> str:
@@ -512,11 +585,17 @@ def apply_profile(
     *,
     project_root: Path,
     profile_name: str,
+    sandbox: bool = False,
     dry_run: bool = False,
     check: bool = False,
     force: bool = False,
 ) -> ApplyResult:
+    validate_base_profile(profile_name)
+    if sandbox:
+        ensure_sandbox_supported()
+
     profile = load_json(profile_path(profile_name), f"profile '{profile_name}'")
+    sandbox_profile = load_json(sandbox_profile_path(), "sandbox profile") if sandbox else None
     target = settings_path(project_root)
     state_target = harden_state_path(project_root)
     existing_state = load_state(project_root)
@@ -548,8 +627,17 @@ def apply_profile(
 
     merged, merge_conflicts = merge_settings(base_existing, profile, force=force)
     conflicts.extend(merge_conflicts)
+    sandbox_inserted_settings: dict[str, Any] | None = None
+    if sandbox and sandbox_profile is not None:
+        sandbox_base = merged
+        merged, sandbox_conflicts = merge_settings(sandbox_base, sandbox_profile, force=force)
+        conflicts.extend(sandbox_conflicts)
+        sandbox_inserted_settings = collect_inserted_settings(sandbox_base, sandbox_profile, force=force)
+
     if existing_state and not switching_profile:
         state_conflicts = managed_settings_conflicts(existing_state, existing)
+        if sandbox:
+            state_conflicts.extend(sandbox_overlay_conflicts(existing_state, existing))
         if force:
             state_conflicts = []
         conflicts.extend(state_conflicts)
@@ -563,13 +651,18 @@ def apply_profile(
         "appliedProfile": profile_name,
         "insertedSettings": inserted_settings,
     }
+    if sandbox_inserted_settings is not None:
+        next_state["sandboxOverlay"] = {
+            "enabled": True,
+            "insertedSettings": sandbox_inserted_settings,
+        }
     if policy_changed:
         next_state["managedPolicy"] = {
             "path": ".claude/security-policy.json",
             "created": True,
             "content": json.loads(policy_after),
         }
-    state = merge_state({} if switching_profile else existing_state, next_state)
+    state = merge_state(state_preserving_sandbox(existing_state) if switching_profile else existing_state, next_state)
     state_after = format_json(state)
     state_changed = json.loads(state_after) != (json.loads(state_before) if state_before else {})
     changed = settings_changed or policy_changed or state_changed
@@ -632,6 +725,7 @@ def remove_profile(
     check: bool = False,
     force: bool = False,
 ) -> ApplyResult:
+    validate_base_profile(profile_name)
     state_target = harden_state_path(project_root)
     if not state_target.exists():
         return ApplyResult(changed=False, conflicts=[], diff="")
@@ -651,6 +745,14 @@ def remove_profile(
         before = ""
 
     updated, conflicts = remove_managed_settings_from_data(existing, state, force=force)
+    sandbox_overlay = state.get("sandboxOverlay")
+    if isinstance(sandbox_overlay, dict):
+        updated, sandbox_conflicts = remove_managed_settings_from_data(
+            updated,
+            {"insertedSettings": sandbox_overlay.get("insertedSettings", {})},
+            force=force,
+        )
+        conflicts.extend(sandbox_conflicts)
 
     policy_target = security_policy_path(project_root)
     policy_before = policy_target.read_text(encoding="utf-8") if policy_target.exists() else ""
@@ -693,13 +795,76 @@ def remove_profile(
     return ApplyResult(changed=True, conflicts=[], diff=diff)
 
 
+def remove_sandbox_overlay(
+    *,
+    project_root: Path,
+    dry_run: bool = False,
+    check: bool = False,
+    force: bool = False,
+) -> ApplyResult:
+    state_target = harden_state_path(project_root)
+    if not state_target.exists():
+        return ApplyResult(changed=False, conflicts=[], diff="")
+
+    state = load_state(project_root)
+    sandbox_overlay = state.get("sandboxOverlay")
+    if not isinstance(sandbox_overlay, dict):
+        return ApplyResult(changed=False, conflicts=[], diff="")
+
+    target = settings_path(project_root)
+    if target.exists():
+        existing = load_json(target, "settings")
+        before = target.read_text(encoding="utf-8")
+    else:
+        existing = {}
+        before = ""
+
+    updated, conflicts = remove_managed_settings_from_data(
+        existing,
+        {"insertedSettings": sandbox_overlay.get("insertedSettings", {})},
+        force=force,
+    )
+
+    next_state = copy.deepcopy(state)
+    next_state.pop("sandboxOverlay", None)
+    state_before = state_target.read_text(encoding="utf-8")
+    state_after = format_json(next_state)
+
+    settings_changed = updated != existing
+    state_changed = json.loads(state_after) != json.loads(state_before)
+    diff = ""
+    if settings_changed:
+        diff += unified_diff(before, format_json(updated), target)
+    if state_changed:
+        diff += unified_diff(state_before, state_after, state_target)
+    changed = settings_changed or state_changed
+
+    if conflicts:
+        return ApplyResult(changed=False, conflicts=conflicts, diff="")
+
+    if not changed or dry_run or check:
+        return ApplyResult(changed=changed, conflicts=[], diff=diff)
+
+    try:
+        if settings_changed:
+            atomic_write(target, format_json(updated))
+        if state_changed:
+            atomic_write(state_target, state_after)
+    except OSError as exc:
+        raise ProfileError(f"failed to remove sandbox overlay: {exc}") from exc
+
+    return ApplyResult(changed=True, conflicts=[], diff=diff)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Apply a claude-bootstrap hardening profile.")
     parser.add_argument("--profile", default="baseline", help="Profile name, for example: baseline or strict")
+    parser.add_argument("--sandbox", action="store_true", help="Apply the opt-in Claude Code Bash sandbox overlay")
     parser.add_argument("--dry-run", action="store_true", help="Show changes without writing settings")
     parser.add_argument("--check", action="store_true", help="Exit non-zero if the profile is not applied")
     parser.add_argument("--force", action="store_true", help="Resolve scalar conflicts by using profile values")
     parser.add_argument("--remove", action="store_true", help="Remove settings managed by the profile state")
+    parser.add_argument("--remove-sandbox", action="store_true", help="Remove only the managed sandbox overlay")
     return parser
 
 
@@ -707,7 +872,18 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
-        if args.remove:
+        if args.remove and args.remove_sandbox:
+            raise ProfileError("--remove and --remove-sandbox cannot be used together")
+        if args.sandbox and (args.remove or args.remove_sandbox):
+            raise ProfileError("--sandbox cannot be combined with remove modes")
+        if args.remove_sandbox:
+            result = remove_sandbox_overlay(
+                project_root=Path.cwd(),
+                dry_run=args.dry_run,
+                check=args.check,
+                force=args.force,
+            )
+        elif args.remove:
             result = remove_profile(
                 project_root=Path.cwd(),
                 profile_name=args.profile,
@@ -719,6 +895,7 @@ def main(argv: list[str] | None = None) -> int:
             result = apply_profile(
                 project_root=Path.cwd(),
                 profile_name=args.profile,
+                sandbox=args.sandbox,
                 dry_run=args.dry_run,
                 check=args.check,
                 force=args.force,
@@ -731,7 +908,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Conflicts detected:", file=sys.stderr)
         for conflict in result.conflicts:
             print(f"  - {conflict}", file=sys.stderr)
-        if args.remove:
+        if args.remove or args.remove_sandbox:
             print("Use --force to remove modified managed values.", file=sys.stderr)
         else:
             print("Use --force to replace conflicting scalar values.", file=sys.stderr)
@@ -739,17 +916,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.check:
         if result.changed:
-            if args.remove:
+            if args.remove_sandbox:
+                print("Sandbox overlay is still applied.")
+            elif args.remove:
                 print(f"Profile '{args.profile}' still has managed state.")
             else:
-                print(f"Profile '{args.profile}' is not fully applied.")
+                suffix = " with sandbox overlay" if args.sandbox else ""
+                print(f"Profile '{args.profile}'{suffix} is not fully applied.")
             if result.diff:
                 print(result.diff, end="")
             return 1
-        if args.remove:
+        if args.remove_sandbox:
+            print("Sandbox overlay has no managed state.")
+        elif args.remove:
             print(f"Profile '{args.profile}' has no managed state.")
         else:
-            print(f"Profile '{args.profile}' is already applied.")
+            suffix = " with sandbox overlay" if args.sandbox else ""
+            print(f"Profile '{args.profile}'{suffix} is already applied.")
         return 0
 
     if args.dry_run:
@@ -760,10 +943,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if result.changed:
-        if args.remove:
+        if args.remove_sandbox:
+            print("Removed sandbox overlay.")
+        elif args.remove:
             print(f"Removed profile '{args.profile}'.")
         else:
-            print(f"Applied profile '{args.profile}'.")
+            suffix = " with sandbox overlay" if args.sandbox else ""
+            print(f"Applied profile '{args.profile}'{suffix}.")
         if result.backup_path is not None:
             print(f"Backup: {result.backup_path}")
     else:
