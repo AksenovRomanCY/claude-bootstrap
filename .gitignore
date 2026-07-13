@@ -31,6 +31,3 @@ env/
 .coverage
 coverage.xml
 htmlcov/
-
-# Local planning artifacts
-Release Plan- Claude Bootstrap Hardening.pdf

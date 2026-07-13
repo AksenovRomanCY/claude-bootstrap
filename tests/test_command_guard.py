@@ -70,6 +70,12 @@ def post_write_payload(file_path, content, cwd=ROOT):
     }
 
 
+def env_without_path():
+    env = os.environ.copy()
+    env["PATH"] = ""
+    return env
+
+
 @contextmanager
 def strict_policy_workspace(policy=None):
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -397,7 +403,7 @@ class CommandGuardTests(unittest.TestCase):
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
                 with prepared_infrastructure_workspace(fixture) as cwd:
-                    completed = self.run_guard(bash_payload(fixture["command"], cwd), env={"PATH": ""})
+                    completed = self.run_guard(bash_payload(fixture["command"], cwd), env=env_without_path())
 
                 self.assertEqual(completed.returncode, 0)
                 self.assertEqual(completed.stderr, "")
@@ -449,7 +455,7 @@ class CommandGuardTests(unittest.TestCase):
 
     def test_strict_unknown_environment_requires_confirmation(self):
         with strict_policy_workspace() as cwd:
-            completed = self.run_guard(bash_payload("terraform apply", cwd), env={"PATH": ""})
+            completed = self.run_guard(bash_payload("terraform apply", cwd), env=env_without_path())
 
         self.assertEqual(completed.returncode, 0)
         output = json.loads(completed.stdout)

@@ -50,6 +50,7 @@ assert_contains "$SKILL" "hardening/profiles/sandbox.settings.json" "doctor chec
 assert_contains "$SKILL" "hardening/security-policy.schema.json" "doctor checks policy schema"
 assert_contains "$SKILL" "hardening/defaults/baseline-policy.json" "doctor checks baseline policy"
 assert_contains "$SKILL" "hardening/defaults/strict-policy.json" "doctor checks strict policy"
+# shellcheck disable=SC2088 # Sentinel checks literal documentation text.
 assert_contains "$SKILL" "~/.claude/skills/harden/SKILL.md" "doctor checks harden skill"
 assert_contains "$SKILL" "block-no-verify.sh" "doctor detects legacy hook command"
 assert_contains "$SKILL" "block-large-files.sh" "doctor detects legacy large-file hook"
@@ -72,6 +73,7 @@ assert_contains "$SKILL" "Profile drift" "doctor documents profile drift"
 assert_contains "$SKILL" "SKIPPED" "doctor skips Python-dependent checks when needed"
 assert_contains "$SKILL" "sandbox.failIfUnavailable" "doctor checks failIfUnavailable"
 assert_contains "$SKILL" "sandbox.allowUnsandboxedCommands" "doctor checks unsandboxed fallback"
+# shellcheck disable=SC2088 # Sentinel checks literal documentation text.
 assert_contains "$SKILL" "~/.aws/credentials" "doctor checks credential file deny entries"
 assert_contains "$SKILL" "AWS_SECRET_ACCESS_KEY" "doctor checks credential env deny entries"
 assert_contains "$SKILL" "dangerous exclusions" "doctor reports dangerous sandbox exclusions"
