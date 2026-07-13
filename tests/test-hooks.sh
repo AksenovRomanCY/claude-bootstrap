@@ -72,18 +72,49 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   fi
 
   if jq -e --arg command "$expected_command" '
-    [.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?]
-    == [{"type":"command","command":$command,"timeout":30}]
+    [
+      "Bash(git *)",
+      "Bash(rm *)",
+      "Bash(sudo *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(terraform *)",
+      "Bash(kubectl *)",
+      "Bash(helm *)",
+      "Bash(docker *)",
+      "Bash(npm *)",
+      "Bash(pnpm *)",
+      "Bash(yarn *)",
+      "Bash(cargo *)",
+      "Bash(twine *)",
+      "Bash(gh *)",
+      "Bash(psql *)",
+      "Bash(mysql *)",
+      "Bash(sqlite3 *)",
+      "Bash(prisma *)",
+      "Bash(alembic *)",
+      "Bash(mkfs *)",
+      "Bash(wipefs *)",
+      "Bash(fdisk *)",
+      "Bash(parted *)",
+      "Bash(dd *)",
+      "Bash(chmod *)",
+      "Bash(chown *)"
+    ] as $expected_ifs |
+    [.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?] as $hooks |
+    ($hooks | length) == ($expected_ifs | length)
+    and ($hooks | all(.type == "command" and .command == $command and .timeout == 30 and (.if | type) == "string"))
+    and (($hooks | map(.if) | sort) == ($expected_ifs | sort))
   ' "$config" > /dev/null; then
-    pass "$(basename "$config") uses one catch-all Bash command_guard.py hook"
+    pass "$(basename "$config") uses expected Bash if-scoped command_guard.py hooks"
   else
-    fail "$(basename "$config") should use one catch-all Bash command_guard.py hook"
+    fail "$(basename "$config") should use expected Bash if-scoped command_guard.py hooks"
   fi
 
-  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | has("if")] | any | not' "$config" > /dev/null; then
-    pass "$(basename "$config") keeps Bash guard unfiltered for compound commands"
+  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | has("if")] | all' "$config" > /dev/null; then
+    pass "$(basename "$config") uses handler-level if for Bash guard"
   else
-    fail "$(basename "$config") should not filter Bash guard with if"
+    fail "$(basename "$config") should use handler-level if for Bash guard"
   fi
 
   if jq -e --arg command "$expected_command" '
