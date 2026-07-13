@@ -46,10 +46,22 @@ echo "hook configuration"
 # --------------------------------------------------
 
 for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
+  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | any(contains("secret_guard.py"))' "$config" > /dev/null; then
+    pass "$(basename "$config") uses secret_guard.py"
+  else
+    fail "$(basename "$config") should use secret_guard.py"
+  fi
+
   if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | any(contains("large_file_policy.py"))' "$config" > /dev/null; then
     pass "$(basename "$config") uses large_file_policy.py"
   else
     fail "$(basename "$config") should use large_file_policy.py"
+  fi
+
+  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | .[0] | contains("secret_guard.py")' "$config" > /dev/null; then
+    pass "$(basename "$config") runs secret_guard.py before other Write|Edit hooks"
+  else
+    fail "$(basename "$config") should run secret_guard.py before other Write|Edit hooks"
   fi
 
   if jq -e '[.hooks.PreToolUse[]? | .hooks[]?.command] | any(contains("block-large-files.sh")) | not' "$config" > /dev/null; then

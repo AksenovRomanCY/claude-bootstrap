@@ -103,6 +103,7 @@ Run automatically — no manual invocation needed.
 
 | Hook | Trigger | Action |
 | --- | --- | --- |
+| `secret_guard` | Write, Edit | Ask or block before writing high-confidence secrets |
 | `large_file_policy` | Write, Edit | Warn or ask on large-file creation/growth using `.claude/security-policy.json` thresholds |
 | `command_guard` | Bash | Guard destructive Git, filesystem, infrastructure, and publication operations |
 | `warn-debug-code` | Edit, Write | Warn on `console.log`, `print()`, `debugger` |

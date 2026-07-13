@@ -6,6 +6,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/secret_guard.py\""
+          },
+          {
+            "type": "command",
             "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/large_file_policy.py\""
           }
         ]
