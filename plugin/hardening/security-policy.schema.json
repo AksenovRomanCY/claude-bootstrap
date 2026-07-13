@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AksenovRomanCY/claude-bootstrap/security-policy.schema.json",
+  "title": "Claude Bootstrap Security Policy",
+  "description": "Project-level security policy used by claude-bootstrap hardening tools and command guards.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "description": "Versioned policy format. Version 1 is the initial baseline policy format.",
+      "type": "integer",
+      "const": 1
+    },
+    "managedBy": {
+      "description": "Identifier for the tool that created the default policy.",
+      "type": "string",
+      "const": "claude-bootstrap"
+    },
+    "profile": {
+      "description": "Hardening profile that supplied this policy.",
+      "type": "string",
+      "enum": [
+        "baseline"
+      ]
+    },
+    "protectedBranches": {
+      "description": "Branches that should receive stricter Git protections.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "production": {
+      "description": "Signals used to identify production-like environments.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "markers": {
+          "description": "Text markers that indicate production context.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "kubeContexts": {
+          "description": "Kubernetes contexts that should be treated as production.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "terraformWorkspaces": {
+          "description": "Terraform workspaces that should be treated as production.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "awsAccountIds": {
+          "description": "AWS account IDs that should be treated as production.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "paths": {
+      "description": "Path policy hints for command guard decisions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "safeRecursiveDelete": {
+          "description": "Paths that may be considered lower risk for recursive deletion after confirmation.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "generated": {
+          "description": "Glob patterns for generated or vendored files.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "largeFiles": {
+      "description": "Thresholds for large file warnings and confirmation prompts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warningLines",
+        "askOnCreateLines",
+        "askOnGrowthLines"
+      ],
+      "properties": {
+        "warningLines": {
+          "description": "Line count where large file warnings begin.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "askOnCreateLines": {
+          "description": "Line count where creating a new file requires confirmation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "askOnGrowthLines": {
+          "description": "Line growth count where editing a file requires confirmation.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "decision": {
+      "description": "Decision values returned by hardening guard rules.",
+      "type": "string",
+      "enum": [
+        "deny",
+        "ask",
+        "warning",
+        "additionalContext",
+        "none"
+      ]
+    }
+  }
+}

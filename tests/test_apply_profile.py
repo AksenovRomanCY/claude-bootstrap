@@ -25,6 +25,7 @@ class ApplyProfileTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.project = Path(self.tempdir.name)
         self.settings = self.project / ".claude" / "settings.json"
+        self.policy = self.project / ".claude" / "security-policy.json"
 
     def tearDown(self):
         self.tempdir.cleanup()
@@ -35,6 +36,13 @@ class ApplyProfileTests(unittest.TestCase):
 
     def read_settings(self):
         return json.loads(self.settings.read_text(encoding="utf-8"))
+
+    def write_policy(self, data):
+        self.policy.parent.mkdir(parents=True, exist_ok=True)
+        self.policy.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    def read_policy(self):
+        return json.loads(self.policy.read_text(encoding="utf-8"))
 
     def apply(self, **kwargs):
         return apply_profile.apply_profile(
@@ -60,7 +68,26 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(settings["permissions"]["disableBypassPermissionsMode"], "disable")
         self.assertIn("Bash(npm publish *)", settings["permissions"]["ask"])
         self.assertIn("Bash(gh repo delete *)", settings["permissions"]["deny"])
+        self.assertEqual(self.read_policy()["profile"], "baseline")
         self.assertEqual(list(self.settings.parent.glob("settings.json.backup-*")), [])
+
+    def test_preserves_existing_valid_policy(self):
+        custom_policy = {
+            "version": 1,
+            "managedBy": "claude-bootstrap",
+            "profile": "baseline",
+            "protectedBranches": ["release"],
+            "largeFiles": {
+                "warningLines": 10,
+                "askOnCreateLines": 20,
+                "askOnGrowthLines": 5,
+            },
+        }
+        self.write_policy(custom_policy)
+
+        self.apply()
+
+        self.assertEqual(self.read_policy(), custom_policy)
 
     def test_preserves_unknown_keys_and_hooks(self):
         hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "custom"}]}]}
@@ -130,6 +157,16 @@ class ApplyProfileTests(unittest.TestCase):
             self.apply()
         self.assertEqual(self.settings.read_text(encoding="utf-8"), "{invalid")
 
+    def test_invalid_existing_policy_fails_before_settings_write(self):
+        self.write_settings({"custom": True})
+        before = self.settings.read_text(encoding="utf-8")
+        self.write_policy({"version": 1, "unknown": True})
+
+        with self.assertRaises(apply_profile.ProfileError):
+            self.apply()
+
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), before)
+
     def test_dry_run_outputs_diff_without_writing(self):
         self.write_settings({"permissions": {"ask": ["Bash(existing *)"]}})
         before = self.settings.read_text(encoding="utf-8")
@@ -139,7 +176,9 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("--- ", completed.stdout)
         self.assertIn("Bash(npm publish *)", completed.stdout)
+        self.assertIn("security-policy.json", completed.stdout)
         self.assertEqual(self.settings.read_text(encoding="utf-8"), before)
+        self.assertFalse(self.policy.exists())
 
     def test_check_reports_drift_without_writing(self):
         self.write_settings({})
@@ -172,14 +211,18 @@ class ApplyProfileTests(unittest.TestCase):
 
     def test_no_semantic_change_keeps_existing_formatting(self):
         data = json.loads(apply_profile.profile_path("baseline").read_text(encoding="utf-8"))
+        policy = json.loads(apply_profile.default_policy_path("baseline").read_text(encoding="utf-8"))
         self.settings.parent.mkdir(parents=True, exist_ok=True)
         self.settings.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+        self.policy.write_text(json.dumps(policy, separators=(",", ":")), encoding="utf-8")
         before = self.settings.read_text(encoding="utf-8")
+        policy_before = self.policy.read_text(encoding="utf-8")
 
         result = self.apply()
 
         self.assertFalse(result.changed)
         self.assertEqual(self.settings.read_text(encoding="utf-8"), before)
+        self.assertEqual(self.policy.read_text(encoding="utf-8"), policy_before)
 
     def test_existing_settings_get_backup_only_when_changed(self):
         self.write_settings({"permissions": {"ask": ["Bash(existing *)"]}})
@@ -204,6 +247,23 @@ class ApplyProfileTests(unittest.TestCase):
 
         self.assertEqual(self.settings.read_text(encoding="utf-8"), before)
         self.assertEqual(list(self.settings.parent.glob(".settings.json.*.tmp")), [])
+
+    def test_settings_write_failure_removes_new_policy(self):
+        self.write_settings({"permissions": {"ask": ["Bash(existing *)"]}})
+        before = self.settings.read_text(encoding="utf-8")
+        real_atomic_write = apply_profile.atomic_write
+
+        def fail_settings_write(path, content):
+            if path == self.settings:
+                raise OSError("settings failed")
+            real_atomic_write(path, content)
+
+        with mock.patch.object(apply_profile, "atomic_write", side_effect=fail_settings_write):
+            with self.assertRaises(apply_profile.ProfileError):
+                self.apply()
+
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), before)
+        self.assertFalse(self.policy.exists())
 
     def test_cli_conflict_exits_nonzero(self):
         self.write_settings({"permissions": {"disableBypassPermissionsMode": "enable"}})

@@ -58,8 +58,92 @@ def profile_path(profile: str) -> Path:
     return Path(__file__).resolve().parent / "profiles" / f"{profile}.settings.json"
 
 
+def default_policy_path(profile: str) -> Path:
+    return Path(__file__).resolve().parent / "defaults" / f"{profile}-policy.json"
+
+
+def policy_schema_path() -> Path:
+    return Path(__file__).resolve().parent / "security-policy.schema.json"
+
+
 def settings_path(project_root: Path) -> Path:
     return project_root / ".claude" / "settings.json"
+
+
+def security_policy_path(project_root: Path) -> Path:
+    return project_root / ".claude" / "security-policy.json"
+
+
+def type_matches(value: Any, expected: str) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    return True
+
+
+def validate_json_schema(data: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+    errors: list[str] = []
+
+    expected_type = schema.get("type")
+    if isinstance(expected_type, str) and not type_matches(data, expected_type):
+        errors.append(f"{path}: expected {expected_type}")
+        return errors
+
+    if "const" in schema and data != schema["const"]:
+        errors.append(f"{path}: expected {schema['const']!r}")
+
+    if "enum" in schema and data not in schema["enum"]:
+        errors.append(f"{path}: expected one of {schema['enum']!r}")
+
+    if isinstance(data, int) and not isinstance(data, bool) and "minimum" in schema:
+        if data < schema["minimum"]:
+            errors.append(f"{path}: must be >= {schema['minimum']}")
+
+    if isinstance(data, dict):
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        for key in required:
+            if key not in data:
+                errors.append(f"{path}.{key}: missing required field")
+
+        if schema.get("additionalProperties") is False:
+            for key in data:
+                if key not in properties:
+                    errors.append(f"{path}.{key}: unknown field")
+
+        for key, value in data.items():
+            if key in properties:
+                errors.extend(validate_json_schema(value, properties[key], f"{path}.{key}"))
+
+    if isinstance(data, list):
+        if schema.get("uniqueItems") is True:
+            seen: set[str] = set()
+            for index, item in enumerate(data):
+                key = json.dumps(item, sort_keys=True, separators=(",", ":"))
+                if key in seen:
+                    errors.append(f"{path}[{index}]: duplicate item")
+                seen.add(key)
+
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(data):
+                errors.extend(validate_json_schema(item, item_schema, f"{path}[{index}]"))
+
+    return errors
+
+
+def validate_policy(policy: dict[str, Any], schema: dict[str, Any], label: str) -> None:
+    errors = validate_json_schema(policy, schema)
+    if errors:
+        details = "; ".join(errors)
+        raise ProfileError(f"{label} does not match security policy schema: {details}")
 
 
 def merge_unique(existing: list[Any], incoming: list[Any]) -> list[Any]:
@@ -178,6 +262,21 @@ def create_backup(path: Path) -> Path:
     return backup_path
 
 
+def prepare_security_policy(project_root: Path, profile_name: str) -> tuple[Path, bool, str, str]:
+    schema = load_json(policy_schema_path(), "security policy schema")
+    default_policy = load_json(default_policy_path(profile_name), f"default policy '{profile_name}'")
+    validate_policy(default_policy, schema, f"default policy '{profile_name}'")
+
+    target = security_policy_path(project_root)
+    if target.exists():
+        existing_policy = load_json(target, "security policy")
+        validate_policy(existing_policy, schema, "security policy")
+        return target, False, target.read_text(encoding="utf-8"), target.read_text(encoding="utf-8")
+
+    after = format_json(default_policy)
+    return target, True, "", after
+
+
 def apply_profile(
     *,
     project_root: Path,
@@ -187,6 +286,7 @@ def apply_profile(
     force: bool = False,
 ) -> ApplyResult:
     profile = load_json(profile_path(profile_name), f"profile '{profile_name}'")
+    policy_target, policy_changed, policy_before, policy_after = prepare_security_policy(project_root, profile_name)
     target = settings_path(project_root)
 
     if target.exists():
@@ -197,9 +297,14 @@ def apply_profile(
         before = ""
 
     merged, conflicts = merge_settings(existing, profile, force=force)
-    changed = merged != existing
+    settings_changed = merged != existing
+    changed = settings_changed or policy_changed
     after = format_json(merged)
-    diff = unified_diff(before, after, target) if changed else ""
+    diff = ""
+    if settings_changed:
+        diff += unified_diff(before, after, target)
+    if policy_changed:
+        diff += unified_diff(policy_before, policy_after, policy_target)
 
     if conflicts:
         return ApplyResult(changed=False, conflicts=conflicts, diff="")
@@ -207,11 +312,17 @@ def apply_profile(
     if not changed or dry_run or check:
         return ApplyResult(changed=changed, conflicts=[], diff=diff)
 
-    backup_path = create_backup(target) if target.exists() else None
+    backup_path = create_backup(target) if settings_changed and target.exists() else None
+    policy_existed = policy_target.exists()
     try:
-        atomic_write(target, after)
+        if policy_changed:
+            atomic_write(policy_target, policy_after)
+        if settings_changed:
+            atomic_write(target, after)
     except OSError as exc:
-        raise ProfileError(f"failed to write settings: {target}: {exc}") from exc
+        if policy_changed and not policy_existed:
+            policy_target.unlink(missing_ok=True)
+        raise ProfileError(f"failed to write profile files: {exc}") from exc
 
     return ApplyResult(changed=True, conflicts=[], diff=diff, backup_path=backup_path)
 

@@ -48,6 +48,8 @@ jobs:
         run: jq empty plugin/hooks/hooks.json
       - name: Validate hardening profiles
         run: jq empty plugin/hardening/profiles/*.json
+      - name: Validate hardening policies
+        run: jq empty plugin/hardening/defaults/*.json plugin/hardening/security-policy.schema.json
 
   test-hooks:
     name: Hook Tests
@@ -83,6 +85,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile Python files
-        run: python3 -m compileall plugin/hardening/apply_profile.py tests/test_apply_profile.py
+        run: python3 -m compileall plugin/hardening/apply_profile.py tests/test_apply_profile.py tests/test_security_policy.py
       - name: Run apply profile tests
-        run: python3 -m unittest tests/test_apply_profile.py
+        run: python3 -m unittest tests/test_apply_profile.py tests/test_security_policy.py
