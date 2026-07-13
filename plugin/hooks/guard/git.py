@@ -201,25 +201,34 @@ def evaluate_push(invocation: GitInvocation, context: GitContext) -> list[Decisi
     if has_no_verify(invocation.args, PUSH_OPTIONS_WITH_VALUES):
         return [Decision.deny("GIT-HOOK-BYPASS", "Do not bypass hooks with git push --no-verify.")]
 
+    decisions: list[Decision] = []
     force = push_force_kind(invocation.args)
-    if force is None:
-        return []
-
-    branches = push_target_branches(invocation.args, context.current_branch)
-    if any(is_protected_branch(branch, context.protected_branches) for branch in branches):
-        return [
-            Decision.deny(
+    if force is not None:
+        branches = push_target_branches(invocation.args, context.current_branch)
+        if any(is_protected_branch(branch, context.protected_branches) for branch in branches):
+            decisions.append(Decision.deny(
                 "GIT-PROTECTED-BRANCH",
                 f"Do not force push protected branches: {', '.join(context.protected_branches)}.",
+            ))
+        else:
+            decisions.append(
+                Decision.ask(
+                    "GIT-FORCE-PUSH",
+                    f"Confirm git push {force} for non-protected or unknown branch context.",
+                )
             )
-        ]
 
-    return [
-        Decision.ask(
-            "GIT-FORCE-PUSH",
-            f"Confirm git push {force} for non-protected or unknown branch context.",
-        )
-    ]
+    delete_branches = push_delete_target_branches(invocation.args)
+    if delete_branches:
+        if any(is_protected_branch(branch, context.protected_branches) for branch in delete_branches):
+            decisions.append(Decision.deny(
+                "GIT-PROTECTED-BRANCH",
+                f"Do not delete remote protected branches: {', '.join(context.protected_branches)}.",
+            ))
+        else:
+            decisions.append(Decision.ask("GIT-REMOTE-BRANCH-DELETE", "Confirm remote branch deletion with git push."))
+
+    return decisions
 
 
 def evaluate_branch(invocation: GitInvocation, context: GitContext) -> list[Decision]:
@@ -301,12 +310,13 @@ def push_force_kind(args: list[str]) -> str | None:
             return "--force"
         if token == "--force-with-lease" or token.startswith("--force-with-lease="):
             return "--force-with-lease"
+    if any(refspec.startswith("+") for refspec in push_refspecs(args)):
+        return "+refspec"
     return None
 
 
 def push_target_branches(args: list[str], current_branch: str | None) -> list[str]:
-    positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
-    refspecs = positionals[1:] if len(positionals) > 1 else []
+    refspecs = push_refspecs(args)
     branches = [branch_from_refspec(refspec, current_branch) for refspec in refspecs]
     branches = [branch for branch in branches if branch]
     if branches:
@@ -314,7 +324,37 @@ def push_target_branches(args: list[str], current_branch: str | None) -> list[st
     return [current_branch] if current_branch else []
 
 
-def branch_from_refspec(refspec: str, current_branch: str | None) -> str | None:
+def push_delete_target_branches(args: list[str]) -> list[str]:
+    positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
+    branches: list[str] = []
+
+    if push_has_delete_flag(args):
+        branches.extend(short_branch_name(branch) for branch in positionals[1:])
+
+    for refspec in push_refspecs(args):
+        if refspec.startswith(":"):
+            branch = branch_from_refspec(refspec)
+            if branch:
+                branches.append(branch)
+
+    return [branch for branch in branches if branch]
+
+
+def push_refspecs(args: list[str]) -> list[str]:
+    positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
+    return positionals[1:] if len(positionals) > 1 else []
+
+
+def push_has_delete_flag(args: list[str]) -> bool:
+    for token in args:
+        if token == "--":
+            return False
+        if token in {"--delete", "-d"}:
+            return True
+    return False
+
+
+def branch_from_refspec(refspec: str, current_branch: str | None = None) -> str | None:
     refspec = refspec.lstrip("+")
     target = refspec.split(":", 1)[1] if ":" in refspec else refspec
     if not target:

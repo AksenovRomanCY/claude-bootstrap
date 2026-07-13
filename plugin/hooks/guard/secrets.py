@@ -39,13 +39,19 @@ JWT_PATTERN = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za
 GENERIC_ASSIGNMENT_PATTERN = re.compile(
     r"""(?ix)
     \b
+    (?:[a-z0-9]+[_-])*
     (?:api[_-]?key|api[_-]?secret|secret[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|
        client[_-]?secret|private[_-]?key|password|passwd|pwd|token|secret)
+    (?:[_-][a-z0-9]+)*
     \b
     \s*[:=]\s*
-    (?P<quote>['"])
-    (?P<value>[A-Za-z0-9_./+=:@$!%-]{16,})
-    (?P=quote)
+    (?:
+        (?P<quote>['"])
+        (?P<quoted_value>[A-Za-z0-9_./+=:@$!%-]{16,})
+        (?P=quote)
+        |
+        (?P<unquoted_value>[A-Za-z0-9_./+=:@$!%-]{16,})
+    )
     """
 )
 
@@ -152,7 +158,10 @@ def detect_secrets(content: str) -> list[SecretFinding]:
     if any(not is_placeholder(match.group(0)) for match in JWT_PATTERN.finditer(content)):
         findings.append(SecretFinding("SECRET-JWT", "JWT-like token", FindingSeverity.JWT))
 
-    if any(is_actionable_generic_value(match.group("value")) for match in GENERIC_ASSIGNMENT_PATTERN.finditer(content)):
+    if any(
+        is_actionable_generic_value(generic_assignment_value(match))
+        for match in GENERIC_ASSIGNMENT_PATTERN.finditer(content)
+    ):
         findings.append(SecretFinding("SECRET-GENERIC-LITERAL", "generic credential assignment", FindingSeverity.GENERIC))
 
     return dedupe_findings(findings)
@@ -184,6 +193,10 @@ def is_placeholder(value: str) -> bool:
 
 def is_actionable_generic_value(value: str) -> bool:
     return not is_placeholder(value) and JWT_PATTERN.fullmatch(value) is None
+
+
+def generic_assignment_value(match: re.Match[str]) -> str:
+    return match.group("quoted_value") or match.group("unquoted_value") or ""
 
 
 def find_project_root(cwd: Path) -> Path:

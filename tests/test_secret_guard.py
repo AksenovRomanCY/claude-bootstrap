@@ -117,6 +117,15 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(hook_output["permissionDecision"], "ask")
         self.assertIn("[SECRET-GENERIC-LITERAL]", hook_output["permissionDecisionReason"])
 
+    def test_generic_env_assignment_requires_confirmation(self):
+        completed = self.run_guard(
+            write_payload(self.tracked_file, "DATABASE_PASSWORD=CorrectHorseBattery123", self.project)
+        )
+        hook_output = self.hook_output(completed)
+
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[SECRET-GENERIC-LITERAL]", hook_output["permissionDecisionReason"])
+
     def test_jwt_defaults_to_warning(self):
         content = 'token = "eyJhbGciOiJIUzI1NiIsInR5cCI.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"'
         completed = self.run_guard(write_payload(self.tracked_file, content, self.project))

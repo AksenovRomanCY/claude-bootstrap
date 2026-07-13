@@ -45,6 +45,41 @@
     "rule": "GIT-FORCE-PUSH"
   },
   {
+    "name": "protected branch force push plus refspec",
+    "command": "git push origin +main",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "feature branch force push plus refspec asks",
+    "command": "git push origin +feature",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-FORCE-PUSH"
+  },
+  {
+    "name": "delete remote protected branch with flag",
+    "command": "git push origin --delete main",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "delete remote feature branch with flag asks",
+    "command": "git push origin --delete feature",
+    "branch": "feature",
+    "decision": "ask",
+    "rule": "GIT-REMOTE-BRANCH-DELETE"
+  },
+  {
+    "name": "delete remote protected branch with refspec",
+    "command": "git push origin :main",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
     "name": "delete protected branch",
     "command": "git branch -D main",
     "branch": "feature",
