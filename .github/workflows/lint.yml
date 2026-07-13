@@ -46,6 +46,8 @@ jobs:
         run: jq empty plugin/settings-hooks.json
       - name: Validate hooks.json
         run: jq empty plugin/hooks/hooks.json
+      - name: Validate hardening profiles
+        run: jq empty plugin/hardening/profiles/*.json
 
   test-hooks:
     name: Hook Tests
@@ -64,3 +66,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run rule inventory tests
         run: bash tests/test-rules.sh
+
+  test-hardening-profiles:
+    name: Hardening Profile Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Run hardening profile tests
+        run: bash tests/test-hardening-profiles.sh

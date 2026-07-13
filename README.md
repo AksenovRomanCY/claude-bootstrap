@@ -139,6 +139,14 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 
 ---
 
+## Hardening
+
+`plugin/hardening/profiles/baseline.settings.json` is a static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
+
+The baseline profile is not applied automatically yet. Broad context-sensitive commands such as `rm`, `git reset`, `git clean`, and `sudo` are intentionally left out of the profile; they need context-aware hooks instead of static deny rules.
+
+---
+
 ## CLAUDE.md Templates
 
 `/init` detects the project stack and uses a matching template as the starting structure, replacing placeholders with real project data.
