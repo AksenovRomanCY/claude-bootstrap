@@ -63,6 +63,16 @@ jobs:
       - name: Run hook tests
         run: bash tests/test-hooks.sh
 
+  test-install:
+    name: Install/Uninstall Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Run install tests
+        run: bash tests/test-install.sh
+
   test-rules:
     name: Rule Inventory Tests
     runs-on: ubuntu-latest

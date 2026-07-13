@@ -10,6 +10,8 @@ TARGET="$HOME/.claude"
 
 DRY_RUN=false
 FORCE=false
+SETTINGS_WILL_CHANGE=false
+SETTINGS_CANDIDATE=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -33,11 +35,48 @@ fi
 echo "=== Claude Bootstrap Uninstaller ==="
 echo ""
 
+SETTINGS_FILE="$TARGET/settings.json"
+HOOKS_FILE="$SOURCE/settings-hooks.json"
+
+settings_cleanup_jq_program() {
+  cat <<'JQ'
+def is_legacy_hook:
+  (.command // "" | test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"));
+def should_remove($bootstrap):
+  (.command // "") as $command |
+  is_legacy_hook or (($bootstrap | index($command)) != null);
+def clean_group($bootstrap):
+  .hooks = ((.hooks // []) | map(select(should_remove($bootstrap) | not)))
+  | select((.hooks | length) > 0);
+def clean_hooks($bootstrap):
+  (.hooks // {}) | with_entries(.value = ((.value // []) | map(clean_group($bootstrap)))) | with_entries(select((.value | length) > 0));
+.[0] as $settings |
+([.[1].hooks[][]?.hooks[]?.command] | unique) as $bootstrap |
+($settings | .hooks = ($settings | clean_hooks($bootstrap)))
+| if .hooks == {} then del(.hooks) else . end
+JQ
+}
+
+build_settings_cleanup_candidate() {
+  local output=$1
+  if [[ -f "$SETTINGS_FILE" && -f "$HOOKS_FILE" ]]; then
+    jq -s "$(settings_cleanup_jq_program)" "$SETTINGS_FILE" "$HOOKS_FILE" > "$output"
+  else
+    return 1
+  fi
+}
+
+json_equal() {
+  local left=$1 right=$2
+  [[ -f "$left" ]] || return 1
+  [[ "$(jq -S -c . "$left")" == "$(jq -S -c . "$right")" ]]
+}
+
 # --- Phase 1: Scan files to remove ---
 FILES_TO_REMOVE=()
 
 # Global components: agents, hooks, skills (direct path match)
-for dir in agents hooks/scripts hooks/guard skills; do
+for dir in agents hooks/scripts hooks/guard hardening skills; do
   if [[ ! -d "$SOURCE/$dir" ]]; then continue; fi
   while IFS= read -r src_file; do
     rel="${src_file#"$SOURCE"/}"
@@ -47,6 +86,14 @@ for dir in agents hooks/scripts hooks/guard skills; do
     fi
   done < <(find "$SOURCE/$dir" -type f)
 done
+
+# Future-compatible /harden cleanup before task 15 adds the source skill.
+if [[ -d "$TARGET/skills/harden" ]]; then
+  while IFS= read -r target_file; do
+    rel="${target_file#"$TARGET"/}"
+    FILES_TO_REMOVE+=("$rel")
+  done < <(find "$TARGET/skills/harden" -type f)
+fi
 
 # Rules library: source is rules/, target is bootstrap-rules/
 if [[ -d "$SOURCE/rules" ]]; then
@@ -76,13 +123,21 @@ if [[ -f "$TARGET/.bootstrap-version" ]]; then
   FILES_TO_REMOVE+=(".bootstrap-version")
 fi
 
+if [[ -f "$SETTINGS_FILE" ]] && [[ -f "$HOOKS_FILE" ]] && jq -e '.hooks' "$SETTINGS_FILE" > /dev/null 2>&1; then
+  SETTINGS_CANDIDATE=$(mktemp)
+  build_settings_cleanup_candidate "$SETTINGS_CANDIDATE"
+  if json_equal "$SETTINGS_FILE" "$SETTINGS_CANDIDATE"; then
+    SETTINGS_WILL_CHANGE=false
+  else
+    SETTINGS_WILL_CHANGE=true
+  fi
+fi
+
 # --- Show what will be removed ---
 echo "Files to remove:"
 
 if [[ ${#FILES_TO_REMOVE[@]} -eq 0 ]]; then
   echo "  (nothing to remove — not installed?)"
-  echo ""
-  exit 0
 fi
 
 for rel in "${FILES_TO_REMOVE[@]}"; do
@@ -91,7 +146,16 @@ done
 
 echo ""
 echo "Total: ${#FILES_TO_REMOVE[@]} files"
+if [[ "$SETTINGS_WILL_CHANGE" == true ]]; then
+  echo "Settings cleanup: hooks will be removed from settings.json"
+else
+  echo "Settings cleanup: no changes"
+fi
 echo ""
+
+if [[ ${#FILES_TO_REMOVE[@]} -eq 0 && "$SETTINGS_WILL_CHANGE" != true ]]; then
+  exit 0
+fi
 
 # --- Dry run exit ---
 if $DRY_RUN; then
@@ -116,33 +180,15 @@ done
 echo "[OK] ${#FILES_TO_REMOVE[@]} files removed"
 
 # --- Phase 3: Clean hooks from settings.json ---
-SETTINGS_FILE="$TARGET/settings.json"
-HOOKS_FILE="$SOURCE/settings-hooks.json"
-
-if [[ -f "$SETTINGS_FILE" ]] && [[ -f "$HOOKS_FILE" ]] && jq -e '.hooks' "$SETTINGS_FILE" > /dev/null 2>&1; then
-  BOOTSTRAP_COMMANDS=$(jq -r '[.hooks[][] | .hooks[]? | .command] | unique | .[]' "$HOOKS_FILE" 2>/dev/null)
-
-  if [[ -n "$BOOTSTRAP_COMMANDS" ]]; then
-    FILTER='.'
-    while IFS= read -r cmd; do
-      FILTER="$FILTER | .hooks.PreToolUse = [.hooks.PreToolUse[]? | .hooks = [.hooks[]? | select(.command != \"$cmd\")] | select(.hooks | length > 0)]"
-      FILTER="$FILTER | .hooks.PostToolUse = [.hooks.PostToolUse[]? | .hooks = [.hooks[]? | select(.command != \"$cmd\")] | select(.hooks | length > 0)]"
-    done <<< "$BOOTSTRAP_COMMANDS"
-
-    FILTER="$FILTER | if .hooks.PreToolUse == [] then del(.hooks.PreToolUse) else . end"
-    FILTER="$FILTER | if .hooks.PostToolUse == [] then del(.hooks.PostToolUse) else . end"
-    FILTER="$FILTER | if .hooks == {} then del(.hooks) else . end"
-
-    CLEANED=$(jq "$FILTER" "$SETTINGS_FILE")
-    echo "$CLEANED" > "$SETTINGS_FILE"
-    echo "[OK] Hooks removed from settings.json"
-  fi
+if [[ "$SETTINGS_WILL_CHANGE" == true ]]; then
+  cp "$SETTINGS_CANDIDATE" "$SETTINGS_FILE"
+  echo "[OK] Hooks removed from settings.json"
 fi
 
 # --- Phase 4: Remove empty directories ---
 for dir in skills/commit skills/pr skills/verify skills/explain skills/fix-build \
            skills/init skills/test skills/changelog skills/deps-check skills/doctor \
-           skills/bootstrap skills hooks/scripts hooks/guard hooks agents \
+           skills/bootstrap skills/harden skills hooks/scripts hooks/guard hooks agents hardening \
            bootstrap-rules/common bootstrap-rules/typescript \
            bootstrap-rules/python bootstrap-rules/golang bootstrap-rules \
            bootstrap-templates; do
