@@ -7,6 +7,7 @@
 - Destructive operations guidance rule and project hardening profiles for baseline, strict, and explicit sandbox overlay workflows
 - Unified `command_guard` hook documentation for Bash, Write/Edit secret checks, large-file checks, and post-write warnings
 - Installer migration, managed hardening state, rollback commands, `/doctor` hardening diagnostics, and CI matrix coverage for owned guard/profile logic
+- External guard integration documented as optional follow-up work, not required for the hardening release
 
 ### Changed
 - Documented hardening responsibility boundaries: rules guide behavior, permissions provide native static controls, hooks add contextual checks, Claude Code owns command matching and sandbox runtime, and external guard integration remains optional future work

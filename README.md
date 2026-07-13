@@ -192,6 +192,26 @@ Hardening profiles are not applied automatically. Broad context-sensitive comman
 - Hardening does not replace CI secret scanning or dependency/security review.
 - Strict mode creates additional permission prompts by design.
 
+### External Guard Follow-up
+
+External guard integration is optional future work and is not required for baseline, strict, sandbox, `/doctor`, or CI. The current release does not call `dcg` or any other external analyzer.
+
+Future policy support may use an explicit opt-in shape similar to:
+
+```json
+{
+  "externalGuard": {
+    "enabled": false,
+    "command": "dcg",
+    "timeoutMs": 1000
+  }
+}
+```
+
+That example is documentation only, not a supported schema field in this release. Any future integration must be disabled by default, enabled only explicitly, and independent of baseline, strict, and sandbox overlay behavior. A missing external executable must not affect current hardening profiles.
+
+Future decision order must keep internal guard decisions first: internal high-confidence deny, internal context rules, optional external guard, then priority merge. External verdicts must never override an internal deny. Timeouts must be bounded, unknown output must not be treated as allow, stdout and stderr must be bounded and redacted, and secrets must not be written to debug logs.
+
 ---
 
 ## CLAUDE.md Templates
