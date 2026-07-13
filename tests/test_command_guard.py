@@ -46,6 +46,30 @@ def bash_payload(command, cwd=ROOT):
     }
 
 
+def write_payload(file_path, content, cwd=ROOT):
+    return {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(file_path),
+            "content": content,
+        },
+        "cwd": str(cwd),
+    }
+
+
+def post_write_payload(file_path, content, cwd=ROOT):
+    return {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(file_path),
+            "content": content,
+        },
+        "cwd": str(cwd),
+    }
+
+
 @contextmanager
 def prepared_git_workspace(fixture):
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -183,8 +207,54 @@ class CommandGuardTests(unittest.TestCase):
         self.assertIn("additionalContext", hook_output)
         self.assertIn("[UNSUPPORTED-SHELL]", hook_output["additionalContext"])
 
+    def test_compound_bash_payload_runs_through_guard(self):
+        completed = self.run_guard(bash_payload("echo ok && git commit --no-verify -m test"))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[GIT-HOOK-BYPASS]", hook_output["permissionDecisionReason"])
+
     def test_non_bash_tool_outputs_nothing(self):
         completed = self.run_guard({"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {}})
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, "")
+
+    def test_write_payload_runs_secret_guard(self):
+        completed = self.run_guard(write_payload("/tmp/config.ts", 'const key = "AKIA1234567890ABCDEF"'))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["hookEventName"], "PreToolUse")
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[SECRET-AWS-ACCESS-KEY]", hook_output["permissionDecisionReason"])
+
+    def test_write_payload_runs_large_file_policy(self):
+        content = "".join(f"line {index}\n" for index in range(1201))
+        completed = self.run_guard(write_payload("/tmp/large.ts", content))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["hookEventName"], "PreToolUse")
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[LARGE-FILE]", hook_output["permissionDecisionReason"])
+
+    def test_post_write_payload_runs_warning_guard_without_denial(self):
+        completed = self.run_guard(post_write_payload("/tmp/test.ts", 'console.log("debug")'))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["hookEventName"], "PostToolUse")
+        self.assertIn("[DEBUG-CONSOLE]", hook_output["additionalContext"])
+        self.assertNotIn("permissionDecision", hook_output)
+
+    def test_unknown_event_outputs_nothing(self):
+        completed = self.run_guard({"hook_event_name": "SessionStart", "tool_name": "Bash", "tool_input": {"command": "git status"}})
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout, "")

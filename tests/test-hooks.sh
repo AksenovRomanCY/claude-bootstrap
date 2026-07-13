@@ -1,5 +1,5 @@
 #!/bin/bash
-# shellcheck disable=SC2015
+# shellcheck disable=SC2015,SC2016
 set -euo pipefail
 
 # Tests for claude-bootstrap hook scripts
@@ -46,54 +46,125 @@ echo "hook configuration"
 # --------------------------------------------------
 
 for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
-  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | any(contains("secret_guard.py"))' "$config" > /dev/null; then
-    pass "$(basename "$config") uses secret_guard.py"
+  if jq empty "$config" > /dev/null; then
+    pass "$(basename "$config") is valid JSON"
   else
-    fail "$(basename "$config") should use secret_guard.py"
+    fail "$(basename "$config") should be valid JSON"
   fi
 
-  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | any(contains("large_file_policy.py"))' "$config" > /dev/null; then
-    pass "$(basename "$config") uses large_file_policy.py"
+  if [[ "$(basename "$config")" == "hooks.json" ]]; then
+    expected_command='python3 "$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py"'
   else
-    fail "$(basename "$config") should use large_file_policy.py"
+    expected_command='python3 ~/.claude/hooks/scripts/command_guard.py'
   fi
 
-  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?.command] | .[0] | contains("secret_guard.py")' "$config" > /dev/null; then
-    pass "$(basename "$config") runs secret_guard.py before other Write|Edit hooks"
+  if jq -e --arg command "$expected_command" '
+    [
+      .hooks.PreToolUse[]?.hooks[]?,
+      .hooks.PostToolUse[]?.hooks[]?
+    ]
+    | map(select((.command // "") | contains("remind-compact.sh") | not))
+    | all(.command == $command)
+  ' "$config" > /dev/null; then
+    pass "$(basename "$config") active security hooks use command_guard.py"
   else
-    fail "$(basename "$config") should run secret_guard.py before other Write|Edit hooks"
+    fail "$(basename "$config") active security hooks should use only command_guard.py"
   fi
 
-  if jq -e '[.hooks.PreToolUse[]? | .hooks[]?.command] | any(contains("block-large-files.sh")) | not' "$config" > /dev/null; then
-    pass "$(basename "$config") has no active block-large-files.sh"
+  if jq -e --arg command "$expected_command" '
+    [.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?]
+    == [{"type":"command","command":$command,"timeout":30}]
+  ' "$config" > /dev/null; then
+    pass "$(basename "$config") uses one catch-all Bash command_guard.py hook"
   else
-    fail "$(basename "$config") should not reference block-large-files.sh"
+    fail "$(basename "$config") should use one catch-all Bash command_guard.py hook"
   fi
 
-  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(contains("command_guard.py"))' "$config" > /dev/null; then
-    pass "$(basename "$config") uses command_guard.py"
+  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | has("if")] | any | not' "$config" > /dev/null; then
+    pass "$(basename "$config") keeps Bash guard unfiltered for compound commands"
   else
-    fail "$(basename "$config") should use command_guard.py"
+    fail "$(basename "$config") should not filter Bash guard with if"
   fi
 
-  if jq -e '[.hooks.PreToolUse[]? | .hooks[]?.command] | any(contains("block-no-verify.sh")) | not' "$config" > /dev/null; then
-    pass "$(basename "$config") has no active block-no-verify.sh"
+  if jq -e --arg command "$expected_command" '
+    [.hooks.PreToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?]
+    == [{"type":"command","command":$command,"timeout":30}]
+  ' "$config" > /dev/null; then
+    pass "$(basename "$config") uses command_guard.py for PreToolUse Write|Edit"
   else
-    fail "$(basename "$config") should not reference block-no-verify.sh"
+    fail "$(basename "$config") should use command_guard.py for PreToolUse Write|Edit"
   fi
 
-  if jq -e '[.hooks.PostToolUse[]? | select(.matcher == "Edit|Write") | .hooks[]?.command] | any(contains("post_write_warnings.py"))' "$config" > /dev/null; then
-    pass "$(basename "$config") uses post_write_warnings.py"
+  if jq -e --arg command "$expected_command" '
+    [.hooks.PostToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]?]
+    | length == 2
+    and .[0].command == $command
+    and .[0].timeout == 30
+    and (.[1].command | contains("remind-compact.sh"))
+    and .[1].timeout == 5
+  ' "$config" > /dev/null; then
+    pass "$(basename "$config") uses command_guard.py and remind-compact for PostToolUse Write|Edit"
   else
-    fail "$(basename "$config") should use post_write_warnings.py"
+    fail "$(basename "$config") should use command_guard.py and remind-compact for PostToolUse Write|Edit"
   fi
 
-  if jq -e '[.hooks.PostToolUse[]? | .hooks[]?.command] | any(contains("warn-secrets.sh") or contains("warn-debug-code.sh")) | not' "$config" > /dev/null; then
-    pass "$(basename "$config") has no active legacy warning hooks"
+  if jq -e '
+    [.hooks.PreToolUse[]?.hooks[]?.command, .hooks.PostToolUse[]?.hooks[]?.command]
+    | any(
+        contains("block-no-verify.sh")
+        or contains("block-large-files.sh")
+        or contains("warn-secrets.sh")
+        or contains("warn-debug-code.sh")
+        or contains("secret_guard.py")
+        or contains("large_file_policy.py")
+        or contains("post_write_warnings.py")
+      )
+    | not
+  ' "$config" > /dev/null; then
+    pass "$(basename "$config") has no active legacy security references"
   else
-    fail "$(basename "$config") should not reference legacy warning hooks"
+    fail "$(basename "$config") should not reference legacy security hooks"
+  fi
+
+  fingerprints=$(jq -r '
+    .hooks
+    | to_entries[]
+    | .key as $event
+    | .value[]? as $group
+    | $group.hooks[]?
+    | [$event, ($group.matcher // ""), (.if // ""), (.command // "")]
+    | @tsv
+  ' "$config")
+  total_fingerprints=$(printf '%s\n' "$fingerprints" | sed '/^$/d' | wc -l | tr -d ' ')
+  unique_fingerprints=$(printf '%s\n' "$fingerprints" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')
+  if [[ "$total_fingerprints" == "$unique_fingerprints" ]]; then
+    pass "$(basename "$config") has no duplicate hook fingerprints"
+  else
+    fail "$(basename "$config") should not have duplicate hook fingerprints"
   fi
 done
+
+echo ""
+
+# --------------------------------------------------
+echo "command_guard.py"
+# --------------------------------------------------
+
+INPUT='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m test"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/command_guard.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' > /dev/null && pass "unified guard blocks Bash payload" || fail "unified guard should block Bash payload"
+
+INPUT='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo ok && git commit --no-verify -m test"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/command_guard.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' > /dev/null && pass "unified guard blocks compound Bash payload" || fail "unified guard should block compound Bash payload"
+
+INPUT='{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/config.ts","content":"const key = \"AKIA1234567890ABCDEF\""}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/command_guard.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("[SECRET-AWS-ACCESS-KEY]"))' > /dev/null && pass "unified guard blocks Write secret payload" || fail "unified guard should block Write secret payload"
+
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"console.log(\"debug\")"}}'
+OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/command_guard.py" 2>&1)
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse" and (.hookSpecificOutput.additionalContext | contains("[DEBUG-CONSOLE]")) and (.hookSpecificOutput | has("permissionDecision") | not)' > /dev/null && pass "unified guard warns after Write payload" || fail "unified guard should warn after Write payload"
 
 echo ""
 

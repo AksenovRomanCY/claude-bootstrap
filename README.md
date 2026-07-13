@@ -103,10 +103,7 @@ Run automatically — no manual invocation needed.
 
 | Hook | Trigger | Action |
 | --- | --- | --- |
-| `secret_guard` | Write, Edit | Ask or block before writing high-confidence secrets |
-| `large_file_policy` | Write, Edit | Warn or ask on large-file creation/growth using `.claude/security-policy.json` thresholds |
-| `command_guard` | Bash | Guard destructive Git, filesystem, infrastructure, and publication operations |
-| `post_write_warnings` | Edit, Write | Warn after writes for secrets, debug code, generated files, CI workflows, migrations, and TODO/FIXME markers |
+| `command_guard` | Bash, Write, Edit | Unified guard for destructive commands, pre-write secrets, large files, and post-write warnings |
 | `remind-compact` | Edit, Write | Remind to `/compact` every 50 actions |
 
 ---

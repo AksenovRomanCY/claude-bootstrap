@@ -2,39 +2,39 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/scripts/secret_guard.py"
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/scripts/large_file_policy.py"
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/scripts/command_guard.py"
+            "command": "python3 ~/.claude/hooks/scripts/command_guard.py",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/scripts/command_guard.py",
+            "timeout": 30
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/scripts/post_write_warnings.py"
+            "command": "python3 ~/.claude/hooks/scripts/command_guard.py",
+            "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/scripts/remind-compact.sh"
+            "command": "bash ~/.claude/hooks/scripts/remind-compact.sh",
+            "timeout": 5
           }
         ]
       }
