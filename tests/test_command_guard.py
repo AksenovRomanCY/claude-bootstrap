@@ -71,6 +71,33 @@ def post_write_payload(file_path, content, cwd=ROOT):
 
 
 @contextmanager
+def strict_policy_workspace(policy=None):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir) / "project"
+        project.mkdir()
+        (project / ".git").mkdir()
+        policy_dir = project / ".claude"
+        policy_dir.mkdir()
+        policy_data = {
+            "version": 1,
+            "managedBy": "claude-bootstrap",
+            "profile": "strict",
+            "commandGuard": {
+                "parserUncertainty": "ask",
+                "unknownEnvironment": "high-risk",
+                "externalGuard": {"enabled": True},
+            },
+            "database": {
+                "destructiveOperations": "deny",
+            },
+        }
+        if policy:
+            policy_data.update(policy)
+        (policy_dir / "security-policy.json").write_text(json.dumps(policy_data), encoding="utf-8")
+        yield project
+
+
+@contextmanager
 def prepared_git_workspace(fixture):
     with tempfile.TemporaryDirectory() as tmpdir:
         cwd = Path(tmpdir)
@@ -206,6 +233,16 @@ class CommandGuardTests(unittest.TestCase):
         hook_output = output["hookSpecificOutput"]
         self.assertIn("additionalContext", hook_output)
         self.assertIn("[UNSUPPORTED-SHELL]", hook_output["additionalContext"])
+
+    def test_strict_parser_uncertainty_requires_confirmation(self):
+        with strict_policy_workspace() as cwd:
+            completed = self.run_guard(bash_payload("echo $(date)", cwd))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[UNSUPPORTED-SHELL]", hook_output["permissionDecisionReason"])
 
     def test_compound_bash_payload_runs_through_guard(self):
         completed = self.run_guard(bash_payload("echo ok && git commit --no-verify -m test"))
@@ -410,6 +447,26 @@ class CommandGuardTests(unittest.TestCase):
 
         self.assertEqual(decisions[0].kind, DecisionKind.DENY)
         self.assertEqual(decisions[0].rule_id, "PRODUCTION-DESTRUCTIVE")
+
+    def test_strict_unknown_environment_requires_confirmation(self):
+        with strict_policy_workspace() as cwd:
+            completed = self.run_guard(bash_payload("terraform apply", cwd), env={"PATH": ""})
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[UNKNOWN-ENVIRONMENT]", hook_output["permissionDecisionReason"])
+
+    def test_strict_destructive_database_command_denies(self):
+        with strict_policy_workspace() as cwd:
+            completed = self.run_guard(bash_payload("psql -c 'DROP DATABASE app'", cwd))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[DB-DESTRUCTIVE]", hook_output["permissionDecisionReason"])
 
     def test_malformed_json_fails_open(self):
         completed = subprocess.run(

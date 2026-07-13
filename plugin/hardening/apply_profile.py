@@ -420,7 +420,13 @@ def create_backup(path: Path) -> Path:
     return backup_path
 
 
-def prepare_security_policy(project_root: Path, profile_name: str) -> tuple[Path, bool, str, str]:
+def prepare_security_policy(
+    project_root: Path,
+    profile_name: str,
+    existing_state: dict[str, Any] | None = None,
+    *,
+    force: bool = False,
+) -> tuple[Path, bool, str, str, list[str]]:
     schema = load_json(policy_schema_path(), "security policy schema")
     default_policy = load_json(default_policy_path(profile_name), f"default policy '{profile_name}'")
     validate_policy(default_policy, schema, f"default policy '{profile_name}'")
@@ -429,10 +435,77 @@ def prepare_security_policy(project_root: Path, profile_name: str) -> tuple[Path
     if target.exists():
         existing_policy = load_json(target, "security policy")
         validate_policy(existing_policy, schema, "security policy")
-        return target, False, target.read_text(encoding="utf-8"), target.read_text(encoding="utf-8")
+        before = target.read_text(encoding="utf-8")
+
+        managed_policy = (existing_state or {}).get("managedPolicy")
+        if isinstance(managed_policy, dict) and managed_policy.get("created") is True:
+            managed_content = managed_policy.get("content")
+            if existing_policy == managed_content or force:
+                after = format_json(default_policy)
+                return target, existing_policy != default_policy, before, after, []
+            return target, False, before, before, ["security-policy.json"]
+
+        return target, False, before, before, []
 
     after = format_json(default_policy)
-    return target, True, "", after
+    return target, True, "", after, []
+
+
+def remove_managed_settings_from_data(
+    existing: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    force: bool = False,
+    conflict_on_missing: bool = True,
+) -> tuple[dict[str, Any], list[str]]:
+    updated = copy.deepcopy(existing)
+    conflicts: list[str] = []
+    inserted = state.get("insertedSettings", {})
+    if not isinstance(inserted, dict):
+        raise ProfileError("harden state insertedSettings must be an object")
+
+    for key, values in inserted.items():
+        if key == "scalars":
+            continue
+        if not isinstance(values, list):
+            raise ProfileError(f"harden state entry must be an array: {key}")
+        path = tuple(key.split("."))
+        exists, current_value = get_nested(updated, path)
+        if not exists:
+            if conflict_on_missing and values and not force:
+                conflicts.append(key)
+            continue
+        if not isinstance(current_value, list):
+            if values:
+                conflicts.append(key)
+            continue
+        current_keys = {json_key(item) for item in current_value}
+        missing_managed_values = [item for item in values if json_key(item) not in current_keys]
+        if conflict_on_missing and missing_managed_values and not force:
+            conflicts.append(key)
+            continue
+        remaining = remove_list_items(current_value, values)
+        if remaining:
+            parent_exists, parent = get_nested(updated, path[:-1])
+            if parent_exists and isinstance(parent, dict):
+                parent[path[-1]] = remaining
+        else:
+            delete_nested(updated, path)
+
+    scalars = inserted.get("scalars", {})
+    if not isinstance(scalars, dict):
+        raise ProfileError("harden state insertedSettings.scalars must be an object")
+    for key, managed_value in scalars.items():
+        path = tuple(key.split("."))
+        exists, current_value = get_nested(updated, path)
+        if not exists:
+            continue
+        if current_value == managed_value or force:
+            delete_nested(updated, path)
+        else:
+            conflicts.append(key)
+
+    return updated, conflicts
 
 
 def apply_profile(
@@ -444,9 +517,16 @@ def apply_profile(
     force: bool = False,
 ) -> ApplyResult:
     profile = load_json(profile_path(profile_name), f"profile '{profile_name}'")
-    policy_target, policy_changed, policy_before, policy_after = prepare_security_policy(project_root, profile_name)
     target = settings_path(project_root)
     state_target = harden_state_path(project_root)
+    existing_state = load_state(project_root)
+    switching_profile = bool(existing_state and existing_state.get("appliedProfile") != profile_name)
+    policy_target, policy_changed, policy_before, policy_after, policy_conflicts = prepare_security_policy(
+        project_root,
+        profile_name,
+        existing_state,
+        force=force,
+    )
 
     if target.exists():
         existing = load_json(target, "settings")
@@ -455,29 +535,28 @@ def apply_profile(
         existing = {}
         before = ""
 
-    existing_state = load_state(project_root)
-    merged, conflicts = merge_settings(existing, profile, force=force)
-    if existing_state:
+    base_existing = existing
+    conflicts: list[str] = [*policy_conflicts]
+    if switching_profile:
+        base_existing, switch_conflicts = remove_managed_settings_from_data(
+            existing,
+            existing_state,
+            force=force,
+            conflict_on_missing=False,
+        )
+        conflicts.extend(switch_conflicts)
+
+    merged, merge_conflicts = merge_settings(base_existing, profile, force=force)
+    conflicts.extend(merge_conflicts)
+    if existing_state and not switching_profile:
         state_conflicts = managed_settings_conflicts(existing_state, existing)
         if force:
             state_conflicts = []
         conflicts.extend(state_conflicts)
 
-        managed_policy = existing_state.get("managedPolicy")
-        if isinstance(managed_policy, dict) and managed_policy.get("created") is True and policy_target.exists():
-            managed_content = managed_policy.get("content")
-            current_policy = load_json(policy_target, "security policy")
-            if current_policy != managed_content:
-                if force:
-                    policy_changed = True
-                    policy_before = policy_target.read_text(encoding="utf-8")
-                    policy_after = format_json(managed_content)
-                else:
-                    conflicts.append("security-policy.json")
-
     settings_changed = merged != existing
     state_before = state_target.read_text(encoding="utf-8") if state_target.exists() else ""
-    inserted_settings = collect_inserted_settings(existing, profile, force=force)
+    inserted_settings = collect_inserted_settings(base_existing, profile, force=force)
     next_state: dict[str, Any] = {
         "managedBy": MANAGED_BY,
         "managedVersion": MANAGED_VERSION,
@@ -490,7 +569,7 @@ def apply_profile(
             "created": True,
             "content": json.loads(policy_after),
         }
-    state = merge_state(existing_state, next_state)
+    state = merge_state({} if switching_profile else existing_state, next_state)
     state_after = format_json(state)
     state_changed = json.loads(state_after) != (json.loads(state_before) if state_before else {})
     changed = settings_changed or policy_changed or state_changed
@@ -571,52 +650,7 @@ def remove_profile(
         existing = {}
         before = ""
 
-    updated = copy.deepcopy(existing)
-    conflicts: list[str] = []
-    inserted = state.get("insertedSettings", {})
-    if not isinstance(inserted, dict):
-        raise ProfileError(f"harden state insertedSettings must be an object: {state_target}")
-
-    for key, values in inserted.items():
-        if key == "scalars":
-            continue
-        if not isinstance(values, list):
-            raise ProfileError(f"harden state entry must be an array: {key}")
-        path = tuple(key.split("."))
-        exists, current_value = get_nested(updated, path)
-        if not exists:
-            if values and not force:
-                conflicts.append(key)
-            continue
-        if not isinstance(current_value, list):
-            if values:
-                conflicts.append(key)
-            continue
-        current_keys = {json_key(item) for item in current_value}
-        missing_managed_values = [item for item in values if json_key(item) not in current_keys]
-        if missing_managed_values and not force:
-            conflicts.append(key)
-            continue
-        remaining = remove_list_items(current_value, values)
-        if remaining:
-            parent_exists, parent = get_nested(updated, path[:-1])
-            if parent_exists and isinstance(parent, dict):
-                parent[path[-1]] = remaining
-        else:
-            delete_nested(updated, path)
-
-    scalars = inserted.get("scalars", {})
-    if not isinstance(scalars, dict):
-        raise ProfileError("harden state insertedSettings.scalars must be an object")
-    for key, managed_value in scalars.items():
-        path = tuple(key.split("."))
-        exists, current_value = get_nested(updated, path)
-        if not exists:
-            continue
-        if current_value == managed_value or force:
-            delete_nested(updated, path)
-        else:
-            conflicts.append(key)
+    updated, conflicts = remove_managed_settings_from_data(existing, state, force=force)
 
     policy_target = security_policy_path(project_root)
     policy_before = policy_target.read_text(encoding="utf-8") if policy_target.exists() else ""
@@ -661,7 +695,7 @@ def remove_profile(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Apply a claude-bootstrap hardening profile.")
-    parser.add_argument("--profile", default="baseline", help="Profile name, for example: baseline")
+    parser.add_argument("--profile", default="baseline", help="Profile name, for example: baseline or strict")
     parser.add_argument("--dry-run", action="store_true", help="Show changes without writing settings")
     parser.add_argument("--check", action="store_true", help="Exit non-zero if the profile is not applied")
     parser.add_argument("--force", action="store_true", help="Resolve scalar conflicts by using profile values")

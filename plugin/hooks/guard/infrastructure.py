@@ -67,6 +67,7 @@ class ProductionPolicy:
     markers: list[str]
     kube_contexts: list[str]
     terraform_workspaces: list[str]
+    unknown_environment_high_risk: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,13 @@ def evaluate_segment(segment: CommandSegment, context: GuardContext) -> list[Dec
                 Decision.deny(
                     "PRODUCTION-DESTRUCTIVE",
                     f"{operation.reason} Production context detected via {production.source}.",
+                )
+            ]
+        if context.policy.unknown_environment_high_risk:
+            return [
+                Decision.ask(
+                    "UNKNOWN-ENVIRONMENT",
+                    f"{operation.reason} Environment context is unknown and strict profile treats it as high risk.",
                 )
             ]
 
@@ -356,15 +364,28 @@ def load_production_policy(project_root: Path) -> ProductionPolicy:
     except (OSError, json.JSONDecodeError):
         return ProductionPolicy(markers=DEFAULT_PRODUCTION_MARKERS, kube_contexts=[], terraform_workspaces=[])
 
-    production = raw_policy.get("production") if isinstance(raw_policy, dict) else None
-    if not isinstance(production, dict):
+    if not isinstance(raw_policy, dict):
         return ProductionPolicy(markers=DEFAULT_PRODUCTION_MARKERS, kube_contexts=[], terraform_workspaces=[])
 
-    markers = string_list(production.get("markers")) or DEFAULT_PRODUCTION_MARKERS
+    production = raw_policy.get("production")
+    if isinstance(production, dict):
+        markers = string_list(production.get("markers")) or DEFAULT_PRODUCTION_MARKERS
+        kube_contexts = string_list(production.get("kubeContexts"))
+        terraform_workspaces = string_list(production.get("terraformWorkspaces"))
+    else:
+        markers = DEFAULT_PRODUCTION_MARKERS
+        kube_contexts = []
+        terraform_workspaces = []
+
+    command_guard = raw_policy.get("commandGuard") if isinstance(raw_policy, dict) else None
+    unknown_environment_high_risk = (
+        isinstance(command_guard, dict) and command_guard.get("unknownEnvironment") == "high-risk"
+    )
     return ProductionPolicy(
         markers=markers,
-        kube_contexts=string_list(production.get("kubeContexts")),
-        terraform_workspaces=string_list(production.get("terraformWorkspaces")),
+        kube_contexts=kube_contexts,
+        terraform_workspaces=terraform_workspaces,
+        unknown_environment_high_risk=unknown_environment_high_risk,
     )
 
 

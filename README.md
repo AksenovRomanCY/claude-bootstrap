@@ -45,6 +45,7 @@ cd ~/your-project
 
 /bootstrap           # Detects stack, copies rules to .claude/rules/
 /harden              # Applies baseline permissions and security policy
+/harden --strict     # Applies stricter prompts and guard policy
 /init                # Generates CLAUDE.md from project analysis
 ```
 
@@ -75,7 +76,7 @@ Plugin or install.sh               In any project
 | Command | Description | Auto |
 | --- | --- | --- |
 | `/bootstrap` | Set up `.claude/rules/` — detect stack, copy rules. `--update` to refresh | |
-| `/harden` | Apply baseline project hardening. `--dry-run` to preview, `--check` to detect drift, `--remove` to remove managed settings | |
+| `/harden` | Apply project hardening. `--baseline` by default, `--strict` for stricter prompts, `--dry-run` to preview, `--check` to detect drift, `--remove` to remove managed settings | |
 | `/init` | Generate `CLAUDE.md` from project analysis. `--check` to validate existing | |
 | `/commit` | Stage changes, generate conventional commit message, commit | |
 | `/pr` | Create GitHub PR or GitLab MR with auto-generated description | |
@@ -141,13 +142,25 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 
 ## Hardening
 
-`/harden` applies the baseline profile to the current project after showing a preview and asking for confirmation. It creates or updates `.claude/settings.json`, creates `.claude/security-policy.json` when missing, writes `.claude/harden-state.json`, and installs `common/destructive-operations.md` without running `/bootstrap`.
+`/harden` applies the baseline profile to the current project after showing a preview and asking for confirmation. `/harden --strict` applies the stricter profile for projects that can tolerate more permission prompts. Both profiles create or update `.claude/settings.json`, create `.claude/security-policy.json` when missing, write `.claude/harden-state.json`, and install `common/destructive-operations.md` without running `/bootstrap`.
 
 `/harden --remove` uses `.claude/harden-state.json` to remove only settings that claude-bootstrap added. User permission rules, hooks, custom policy changes, and `.claude/rules/` are preserved; modified managed values are reported as conflicts unless the user explicitly asks for `--force`.
 
 `plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
 
-The baseline profile is not applied automatically. Broad context-sensitive commands such as `rm`, `git reset`, `git clean`, and `sudo` are intentionally left out of the profile; they need context-aware hooks instead of static deny rules.
+`plugin/hardening/profiles/strict.settings.json` builds on the same architecture with additional static prompts and deny rules. `plugin/hardening/defaults/strict-policy.json` also asks on parser uncertainty, treats unknown environment context as high risk for production-sensitive operations, lowers large-file thresholds, and denies high-confidence destructive database commands.
+
+| Behavior | Baseline | Strict |
+| --- | --- | --- |
+| Bypass permissions | Disabled | Disabled |
+| Parser uncertainty | Warning context | Permission prompt |
+| Infrastructure operations | Prompt or deny when production is detected | More prompts; unknown environment is high risk |
+| Destructive database commands | No static profile decision | Deny high-confidence destructive CLI operations |
+| Large files | Standard thresholds | Lower thresholds |
+| External guard extension point | Not enabled | Opt-in metadata only |
+| Sandbox | Not enabled | Not enabled |
+
+Hardening profiles are not applied automatically. Broad context-sensitive commands such as `rm`, `git reset`, `git clean`, and `sudo` are intentionally left out of static deny rules; they need context-aware hooks instead.
 
 ---
 

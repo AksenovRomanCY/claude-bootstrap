@@ -23,7 +23,8 @@
       "description": "Hardening profile that supplied this policy.",
       "type": "string",
       "enum": [
-        "baseline"
+        "baseline",
+        "strict"
       ]
     },
     "protectedBranches": {
@@ -120,6 +121,63 @@
           "description": "Line growth count where editing a file requires confirmation.",
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "commandGuard": {
+      "description": "Optional command guard behavior overrides for stricter profiles.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parserUncertainty": {
+          "description": "Decision level for suspicious or unsupported shell parser constructs.",
+          "type": "string",
+          "enum": [
+            "warning",
+            "ask"
+          ]
+        },
+        "unknownEnvironment": {
+          "description": "How production-sensitive operations behave when environment context is unknown.",
+          "type": "string",
+          "enum": [
+            "normal",
+            "high-risk"
+          ]
+        },
+        "infrastructureChecks": {
+          "description": "Infrastructure command families expected to receive stricter guard review.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "externalGuard": {
+          "description": "Extension point metadata for future external guard integrations.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Whether the profile opts in to external guard extension points.",
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "database": {
+      "description": "Database command guard behavior for destructive operations.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "destructiveOperations": {
+          "description": "Decision level for high-confidence destructive database operations.",
+          "type": "string",
+          "enum": [
+            "ask",
+            "deny"
+          ]
         }
       }
     }

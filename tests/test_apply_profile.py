@@ -47,17 +47,17 @@ class ApplyProfileTests(unittest.TestCase):
     def read_state(self):
         return json.loads((self.project / ".claude" / "harden-state.json").read_text(encoding="utf-8"))
 
-    def apply(self, **kwargs):
+    def apply(self, profile_name="baseline", **kwargs):
         return apply_profile.apply_profile(
             project_root=self.project,
-            profile_name="baseline",
+            profile_name=profile_name,
             **kwargs,
         )
 
-    def remove(self, **kwargs):
+    def remove(self, profile_name="baseline", **kwargs):
         return apply_profile.remove_profile(
             project_root=self.project,
-            profile_name="baseline",
+            profile_name=profile_name,
             **kwargs,
         )
 
@@ -220,6 +220,65 @@ class ApplyProfileTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertIn("already applied", completed.stdout)
+
+    def test_applies_strict_profile(self):
+        result = self.apply("strict")
+
+        self.assertTrue(result.changed)
+        settings = self.read_settings()
+        self.assertEqual(settings["permissions"]["disableBypassPermissionsMode"], "disable")
+        self.assertIn("Bash(terraform destroy *)", settings["permissions"]["deny"])
+        self.assertIn("Bash(docker system prune *)", settings["permissions"]["ask"])
+        self.assertEqual(self.read_policy()["profile"], "strict")
+        self.assertEqual(self.read_policy()["commandGuard"]["parserUncertainty"], "ask")
+        state = self.read_state()
+        self.assertEqual(state["appliedProfile"], "strict")
+        self.assertIn("Bash(terraform destroy *)", state["insertedSettings"]["permissions.deny"])
+
+    def test_switches_baseline_to_strict_without_stale_managed_entries(self):
+        self.apply()
+
+        result = self.apply("strict")
+
+        self.assertTrue(result.changed)
+        settings = self.read_settings()
+        self.assertNotIn("Bash(terraform destroy *)", settings["permissions"].get("ask", []))
+        self.assertIn("Bash(terraform destroy *)", settings["permissions"]["deny"])
+        self.assertEqual(self.read_policy()["profile"], "strict")
+        state = self.read_state()
+        self.assertEqual(state["appliedProfile"], "strict")
+        self.assertNotIn("Bash(terraform destroy *)", state["insertedSettings"].get("permissions.ask", []))
+
+    def test_switches_strict_to_baseline_without_stale_managed_entries(self):
+        self.apply("strict")
+
+        result = self.apply()
+
+        self.assertTrue(result.changed)
+        settings = self.read_settings()
+        self.assertNotIn("Bash(terraform destroy *)", settings["permissions"].get("deny", []))
+        self.assertIn("Bash(terraform destroy *)", settings["permissions"]["ask"])
+        self.assertEqual(self.read_policy()["profile"], "baseline")
+        self.assertEqual(self.read_state()["appliedProfile"], "baseline")
+
+    def test_switch_preserves_user_settings(self):
+        self.write_settings(
+            {
+                "permissions": {
+                    "ask": ["Bash(custom deploy *)"],
+                    "deny": ["Read(./custom-secret)"],
+                },
+                "custom": {"enabled": True},
+            }
+        )
+
+        self.apply()
+        self.apply("strict")
+
+        settings = self.read_settings()
+        self.assertEqual(settings["custom"], {"enabled": True})
+        self.assertIn("Bash(custom deploy *)", settings["permissions"]["ask"])
+        self.assertIn("Read(./custom-secret)", settings["permissions"]["deny"])
 
     def test_repeated_apply_is_idempotent_and_keeps_formatting(self):
         self.apply()
@@ -493,6 +552,19 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertIn("permissions.disableBypassPermissionsMode", completed.stderr)
         self.assertIn("Use --force", completed.stderr)
+
+    def test_cli_applies_and_removes_strict_profile(self):
+        completed = self.run_cli("--profile", "strict")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("Applied profile", completed.stdout)
+        self.assertEqual(self.read_state()["appliedProfile"], "strict")
+
+        completed = self.run_cli("--profile", "strict", "--remove")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("Removed profile", completed.stdout)
+        self.assertFalse((self.project / ".claude" / "harden-state.json").exists())
 
 
 if __name__ == "__main__":

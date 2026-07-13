@@ -1,18 +1,19 @@
 ---
 name: harden
-description: Apply the claude-bootstrap baseline hardening profile to the current project
+description: Apply a claude-bootstrap hardening profile to the current project
 disable-model-invocation: true
 allowed-tools: Bash, Read, Glob
 ---
 
 # Harden Project
 
-Apply claude-bootstrap baseline hardening to the current project.
+Apply claude-bootstrap hardening to the current project.
 
 ## Supported Commands
 
 - `/harden`
 - `/harden --baseline`
+- `/harden --strict`
 - `/harden --dry-run`
 - `/harden --check`
 - `/harden --remove`
@@ -23,7 +24,10 @@ Default: `/harden` is the same as `/harden --baseline`.
 
 1. **Parse arguments**
    - Treat no arguments as `--baseline`
-   - Allow only `--baseline`, `--dry-run`, `--check`, `--remove`, and explicit user-requested `--force`
+   - Allow only `--baseline`, `--strict`, `--dry-run`, `--check`, `--remove`, and explicit user-requested `--force`
+   - Set `PROFILE=baseline` for `/harden` or `--baseline`
+   - Set `PROFILE=strict` for `--strict`
+   - Do not allow `--baseline` and `--strict` together
    - If another option is provided, explain that it is not supported yet and stop
 
 2. **Find the project root**
@@ -47,7 +51,7 @@ Default: `/harden` is the same as `/harden --baseline`.
 5. **Preview the profile**
    - Run:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile baseline --dry-run
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --dry-run
      ```
    - Report the target files:
      - `.claude/settings.json`
@@ -68,7 +72,7 @@ Default: `/harden` is the same as `/harden --baseline`.
 7. **Check mode**
    - If `$ARGUMENTS` contains `--check`, run:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile baseline --check
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --check
      ```
    - Also check that `.claude/rules/common/destructive-operations.md` exists and matches the installed rule
    - Exit with a clear PASS/DRIFT summary
@@ -77,14 +81,14 @@ Default: `/harden` is the same as `/harden --baseline`.
 8. **Remove mode**
    - If `$ARGUMENTS` contains `--remove`, preview removal first:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile baseline --remove --dry-run
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove --dry-run
      ```
    - Explain that removal only uses `.claude/harden-state.json`
    - Confirm that `.claude/rules/` is not removed
    - If conflicts are reported, stop and explain that `--force` is required for modified managed values
    - Ask for explicit confirmation before running:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile baseline --remove
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove
      ```
    - Use `--force` only when the user explicitly requested it
    - Summarize removed managed settings, policy removal, and state removal
@@ -98,7 +102,7 @@ Default: `/harden` is the same as `/harden --baseline`.
 10. **Apply**
     - Run:
       ```bash
-      cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile baseline
+      cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE"
       ```
     - Create `.claude/rules/common/`
     - Copy the installed `destructive-operations.md` rule into `.claude/rules/common/destructive-operations.md`
@@ -119,5 +123,6 @@ Default: `/harden` is the same as `/harden --baseline`.
 - Do not require DCG or external guard tooling
 - Do not use `--force` unless the user explicitly asks for a conflict override in a later workflow
 - Do not remove `.claude/rules/` during `--remove`
+- Strict profile may create more permission prompts than baseline, but it must not block the whole Bash tool
 
 $ARGUMENTS

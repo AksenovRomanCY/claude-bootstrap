@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APPLY_PROFILE = ROOT / "plugin" / "hardening" / "apply_profile.py"
 SCHEMA = ROOT / "plugin" / "hardening" / "security-policy.schema.json"
 DEFAULT_POLICY = ROOT / "plugin" / "hardening" / "defaults" / "baseline-policy.json"
+STRICT_POLICY = ROOT / "plugin" / "hardening" / "defaults" / "strict-policy.json"
 
 spec = importlib.util.spec_from_file_location("apply_profile", APPLY_PROFILE)
 apply_profile = importlib.util.module_from_spec(spec)
@@ -22,12 +23,22 @@ class SecurityPolicySchemaTests(unittest.TestCase):
     def setUp(self):
         self.schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
         self.policy = json.loads(DEFAULT_POLICY.read_text(encoding="utf-8"))
+        self.strict_policy = json.loads(STRICT_POLICY.read_text(encoding="utf-8"))
 
     def validate(self, policy):
         apply_profile.validate_policy(policy, self.schema, "test policy")
 
     def test_default_policy_matches_schema(self):
         self.validate(self.policy)
+
+    def test_strict_policy_matches_schema(self):
+        self.validate(self.strict_policy)
+        self.assertEqual(self.strict_policy["profile"], "strict")
+
+    def test_schema_allows_known_profiles(self):
+        profiles = self.schema["properties"]["profile"]["enum"]
+
+        self.assertEqual(profiles, ["baseline", "strict"])
 
     def test_schema_requires_version(self):
         policy = copy.deepcopy(self.policy)

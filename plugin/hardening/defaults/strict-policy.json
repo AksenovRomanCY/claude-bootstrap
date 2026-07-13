@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "managedBy": "claude-bootstrap",
+  "profile": "strict",
+  "protectedBranches": [
+    "main",
+    "master",
+    "release",
+    "production"
+  ],
+  "production": {
+    "markers": [
+      "prod",
+      "production",
+      "live"
+    ],
+    "kubeContexts": [],
+    "terraformWorkspaces": [],
+    "awsAccountIds": []
+  },
+  "paths": {
+    "safeRecursiveDelete": [
+      ".cache",
+      "dist",
+      "build",
+      "tmp"
+    ],
+    "generated": [
+      "**/generated/**",
+      "**/*.generated.*",
+      "**/vendor/**"
+    ]
+  },
+  "largeFiles": {
+    "warningLines": 600,
+    "askOnCreateLines": 900,
+    "askOnGrowthLines": 75
+  },
+  "commandGuard": {
+    "parserUncertainty": "ask",
+    "unknownEnvironment": "high-risk",
+    "infrastructureChecks": [
+      "docker-system-prune",
+      "remote-script",
+      "terraform",
+      "kubectl",
+      "helm",
+      "package-publish"
+    ],
+    "externalGuard": {
+      "enabled": true
+    }
+  },
+  "database": {
+    "destructiveOperations": "deny"
+  }
+}

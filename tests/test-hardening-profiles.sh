@@ -6,6 +6,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASELINE="$ROOT/plugin/hardening/profiles/baseline.settings.json"
+STRICT="$ROOT/plugin/hardening/profiles/strict.settings.json"
+STRICT_POLICY="$ROOT/plugin/hardening/defaults/strict-policy.json"
 README="$ROOT/README.md"
 
 PASSED=0
@@ -32,6 +34,15 @@ assert_jq_true() {
   fi
 }
 
+assert_jq_true_path() {
+  local path=$1 filter=$2 label=$3
+  if jq -e "$filter" "$path" > /dev/null; then
+    pass "$label"
+  else
+    fail "$label"
+  fi
+}
+
 echo "=== Hardening Profile Tests ==="
 echo ""
 
@@ -45,6 +56,30 @@ if jq empty "$BASELINE" > /dev/null; then
   pass "baseline profile is valid JSON"
 else
   fail "baseline profile has invalid JSON"
+fi
+
+if [[ -f "$STRICT" ]]; then
+  pass "strict profile exists"
+else
+  fail "strict profile missing"
+fi
+
+if jq empty "$STRICT" > /dev/null; then
+  pass "strict profile is valid JSON"
+else
+  fail "strict profile has invalid JSON"
+fi
+
+if [[ -f "$STRICT_POLICY" ]]; then
+  pass "strict policy exists"
+else
+  fail "strict policy missing"
+fi
+
+if jq empty "$STRICT_POLICY" > /dev/null; then
+  pass "strict policy is valid JSON"
+else
+  fail "strict policy has invalid JSON"
 fi
 
 assert_jq_true '.permissions.disableBypassPermissionsMode == "disable"' "baseline disables permission bypass"
@@ -75,7 +110,30 @@ assert_jq_true '.permissions.ask | index("Bash(npm publish *)") != null' "baseli
 assert_jq_true '.permissions.ask | index("Bash(terraform apply *)") != null' "baseline asks on terraform apply"
 assert_jq_true '.permissions.ask | index("Bash(kubectl delete *)") != null' "baseline asks on kubectl delete"
 
+assert_jq_true_path "$STRICT" '.permissions.disableBypassPermissionsMode == "disable"' "strict disables permission bypass"
+assert_jq_true_path "$STRICT" '(.permissions.deny | type) == "array" and (.permissions.ask | type) == "array"' "strict deny and ask are arrays"
+assert_jq_true_path "$STRICT" '(.permissions.deny | length) > 0' "strict deny is populated"
+assert_jq_true_path "$STRICT" '(.permissions.ask | length) > 0' "strict ask is populated"
+assert_jq_true_path "$STRICT" '(.permissions.deny | length) == (.permissions.deny | unique | length)' "strict deny has no duplicates"
+assert_jq_true_path "$STRICT" '(.permissions.ask | length) == (.permissions.ask | unique | length)' "strict ask has no duplicates"
+assert_jq_true_path "$STRICT" '([.permissions.deny[], .permissions.ask[]] | length) == ([.permissions.deny[], .permissions.ask[]] | unique | length)' "strict deny and ask do not overlap"
+assert_jq_true_path "$STRICT" '[.permissions.deny[], .permissions.ask[]] | all(test("^(Read|Bash)\\(.+\\)$"))' "strict permission rules use allowed format"
+assert_jq_true_path "$STRICT" '.permissions.deny | index("Bash(terraform destroy *)") != null' "strict denies terraform destroy statically"
+assert_jq_true_path "$STRICT" '.permissions.ask | index("Bash(docker system prune *)") != null' "strict asks on docker system prune"
+assert_jq_true_path "$STRICT" '.permissions.ask | index("Bash(psql *)") != null' "strict asks on psql"
+assert_jq_true_path "$STRICT" '[.permissions.deny[], .permissions.ask[]] | index("Bash(*)") == null' "strict does not block whole Bash tool"
+assert_jq_true_path "$STRICT" 'has("sandbox") | not' "strict does not enable sandbox"
+
+assert_jq_true_path "$STRICT_POLICY" '.profile == "strict"' "strict policy identifies strict profile"
+assert_jq_true_path "$STRICT_POLICY" '.commandGuard.parserUncertainty == "ask"' "strict policy asks on parser uncertainty"
+assert_jq_true_path "$STRICT_POLICY" '.commandGuard.unknownEnvironment == "high-risk"' "strict policy treats unknown environment as high risk"
+assert_jq_true_path "$STRICT_POLICY" '.commandGuard.externalGuard.enabled == true' "strict policy exposes external guard extension point"
+assert_jq_true_path "$STRICT_POLICY" '.database.destructiveOperations == "deny"' "strict policy denies destructive database operations"
+assert_jq_true_path "$STRICT_POLICY" 'has("sandbox") | not' "strict policy does not enable sandbox"
+
 assert_contains "$README" "baseline.settings.json" "README mentions baseline profile file"
+assert_contains "$README" "strict.settings.json" "README mentions strict profile file"
+assert_contains "$README" "| Behavior | Baseline | Strict |" "README contains baseline/strict comparison table"
 assert_contains "$README" "not applied automatically" "README explains baseline is not applied automatically"
 assert_contains "$README" "context-aware hooks" "README explains broad commands need context-aware hooks"
 
