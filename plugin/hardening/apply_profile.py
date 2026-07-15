@@ -316,39 +316,12 @@ def collect_inserted_settings(
     return inserted
 
 
-def combine_inserted_settings(existing_inserted: Any, new_inserted: Any) -> dict[str, Any]:
-    if not isinstance(existing_inserted, dict):
-        existing_inserted = {}
-    if not isinstance(new_inserted, dict):
-        new_inserted = {}
-
-    combined_inserted: dict[str, Any] = {"scalars": {}}
-    for key in sorted(set(existing_inserted) | set(new_inserted)):
-        if key == "scalars":
-            continue
-        existing_values = existing_inserted.get(key, [])
-        new_values = new_inserted.get(key, [])
-        if isinstance(existing_values, list) and isinstance(new_values, list):
-            combined_inserted[key] = merge_unique(existing_values, new_values)
-
-    scalars: dict[str, Any] = {}
-    for source in (existing_inserted.get("scalars"), new_inserted.get("scalars")):
-        if isinstance(source, dict):
-            scalars.update(copy.deepcopy(source))
-    combined_inserted["scalars"] = scalars
-    return combined_inserted
-
-
 def merge_state(existing_state: dict[str, Any], new_state: dict[str, Any]) -> dict[str, Any]:
     merged = copy.deepcopy(existing_state) if existing_state else {}
     merged["managedBy"] = MANAGED_BY
     merged["managedVersion"] = MANAGED_VERSION
     merged["appliedProfile"] = new_state["appliedProfile"]
-
-    merged["insertedSettings"] = combine_inserted_settings(
-        merged.get("insertedSettings"),
-        new_state.get("insertedSettings"),
-    )
+    merged["insertedSettings"] = copy.deepcopy(new_state.get("insertedSettings", {"scalars": {}}))
 
     if "managedPolicy" in new_state:
         merged["managedPolicy"] = copy.deepcopy(new_state["managedPolicy"])
@@ -356,31 +329,11 @@ def merge_state(existing_state: dict[str, Any], new_state: dict[str, Any]) -> di
         merged["managedPolicy"] = copy.deepcopy(existing_state["managedPolicy"])
 
     if "sandboxOverlay" in new_state:
-        existing_overlay = merged.get("sandboxOverlay", {})
-        if not isinstance(existing_overlay, dict):
-            existing_overlay = {}
-        new_overlay = new_state["sandboxOverlay"]
-        if isinstance(new_overlay, dict):
-            overlay = copy.deepcopy(existing_overlay)
-            overlay["enabled"] = new_overlay.get("enabled", True)
-            overlay["insertedSettings"] = combine_inserted_settings(
-                existing_overlay.get("insertedSettings"),
-                new_overlay.get("insertedSettings"),
-            )
-            merged["sandboxOverlay"] = overlay
+        merged["sandboxOverlay"] = copy.deepcopy(new_state["sandboxOverlay"])
+    else:
+        merged.pop("sandboxOverlay", None)
 
     return merged
-
-
-def state_preserving_sandbox(existing_state: dict[str, Any]) -> dict[str, Any]:
-    sandbox_overlay = existing_state.get("sandboxOverlay")
-    if not isinstance(sandbox_overlay, dict):
-        return {}
-    return {
-        "managedBy": MANAGED_BY,
-        "managedVersion": MANAGED_VERSION,
-        "sandboxOverlay": copy.deepcopy(sandbox_overlay),
-    }
 
 
 def load_state(project_root: Path) -> dict[str, Any]:
@@ -393,42 +346,6 @@ def load_state(project_root: Path) -> dict[str, Any]:
     if state.get("managedVersion") != MANAGED_VERSION:
         raise ProfileError(f"harden state has unsupported version: {target}")
     return state
-
-
-def inserted_settings_conflicts(inserted: dict[str, Any], settings: dict[str, Any]) -> list[str]:
-    conflicts: list[str] = []
-    if not isinstance(inserted, dict):
-        return conflicts
-
-    for key, values in inserted.items():
-        if key == "scalars":
-            continue
-        if not values:
-            continue
-        exists, current_value = get_nested(settings, tuple(key.split(".")))
-        if exists and not isinstance(current_value, list):
-            conflicts.append(key)
-
-    scalars = inserted.get("scalars", {})
-    if isinstance(scalars, dict):
-        for key, managed_value in scalars.items():
-            exists, current_value = get_nested(settings, tuple(key.split(".")))
-            if exists and current_value != managed_value:
-                conflicts.append(key)
-
-    return conflicts
-
-
-def managed_settings_conflicts(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
-    return inserted_settings_conflicts(state.get("insertedSettings", {}), settings)
-
-
-def sandbox_overlay_conflicts(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
-    sandbox_overlay = state.get("sandboxOverlay")
-    if not isinstance(sandbox_overlay, dict):
-        return []
-    conflicts = inserted_settings_conflicts(sandbox_overlay.get("insertedSettings", {}), settings)
-    return [f"sandboxOverlay.{conflict}" for conflict in conflicts]
 
 
 def ensure_sandbox_supported() -> None:
@@ -591,15 +508,17 @@ def apply_profile(
     force: bool = False,
 ) -> ApplyResult:
     validate_base_profile(profile_name)
-    if sandbox:
+    existing_state = load_state(project_root)
+    existing_overlay = existing_state.get("sandboxOverlay")
+    preserve_sandbox = isinstance(existing_overlay, dict) and existing_overlay.get("enabled") is True
+    active_sandbox = sandbox or preserve_sandbox
+    if active_sandbox:
         ensure_sandbox_supported()
 
     profile = load_json(profile_path(profile_name), f"profile '{profile_name}'")
-    sandbox_profile = load_json(sandbox_profile_path(), "sandbox profile") if sandbox else None
+    sandbox_profile = load_json(sandbox_profile_path(), "sandbox profile") if active_sandbox else None
     target = settings_path(project_root)
     state_target = harden_state_path(project_root)
-    existing_state = load_state(project_root)
-    switching_profile = bool(existing_state and existing_state.get("appliedProfile") != profile_name)
     policy_target, policy_changed, policy_before, policy_after, policy_conflicts = prepare_security_policy(
         project_root,
         profile_name,
@@ -616,31 +535,31 @@ def apply_profile(
 
     base_existing = existing
     conflicts: list[str] = [*policy_conflicts]
-    if switching_profile:
-        base_existing, switch_conflicts = remove_managed_settings_from_data(
-            existing,
+    if isinstance(existing_overlay, dict):
+        base_existing, overlay_conflicts = remove_managed_settings_from_data(
+            base_existing,
+            {"insertedSettings": existing_overlay.get("insertedSettings", {})},
+            force=force,
+            conflict_on_missing=False,
+        )
+        conflicts.extend(f"sandboxOverlay.{conflict}" for conflict in overlay_conflicts)
+    if existing_state:
+        base_existing, managed_conflicts = remove_managed_settings_from_data(
+            base_existing,
             existing_state,
             force=force,
             conflict_on_missing=False,
         )
-        conflicts.extend(switch_conflicts)
+        conflicts.extend(managed_conflicts)
 
     merged, merge_conflicts = merge_settings(base_existing, profile, force=force)
     conflicts.extend(merge_conflicts)
     sandbox_inserted_settings: dict[str, Any] | None = None
-    if sandbox and sandbox_profile is not None:
+    if active_sandbox and sandbox_profile is not None:
         sandbox_base = merged
         merged, sandbox_conflicts = merge_settings(sandbox_base, sandbox_profile, force=force)
         conflicts.extend(sandbox_conflicts)
         sandbox_inserted_settings = collect_inserted_settings(sandbox_base, sandbox_profile, force=force)
-
-    if existing_state and not switching_profile:
-        state_conflicts = managed_settings_conflicts(existing_state, existing)
-        if sandbox:
-            state_conflicts.extend(sandbox_overlay_conflicts(existing_state, existing))
-        if force:
-            state_conflicts = []
-        conflicts.extend(state_conflicts)
 
     settings_changed = merged != existing
     state_before = state_target.read_text(encoding="utf-8") if state_target.exists() else ""
@@ -662,7 +581,7 @@ def apply_profile(
             "created": True,
             "content": json.loads(policy_after),
         }
-    state = merge_state(state_preserving_sandbox(existing_state) if switching_profile else existing_state, next_state)
+    state = merge_state(existing_state, next_state)
     state_after = format_json(state)
     state_changed = json.loads(state_after) != (json.loads(state_before) if state_before else {})
     changed = settings_changed or policy_changed or state_changed

@@ -424,6 +424,39 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(state_first, state_second)
         self.assertEqual(len(list(self.settings.parent.glob("settings.json.backup-*"))), 0)
 
+    def test_same_profile_upgrade_reconciles_managed_settings(self):
+        self.apply()
+        settings = self.read_settings()
+        settings["permissions"]["ask"].append("Bash(custom deploy *)")
+        self.write_settings(settings)
+
+        upgraded_profile = json.loads(apply_profile.profile_path("baseline").read_text(encoding="utf-8"))
+        upgraded_profile["permissions"]["ask"].remove("Bash(npm publish *)")
+        upgraded_profile_path = self.project / "baseline-upgraded.settings.json"
+        upgraded_profile_path.write_text(json.dumps(upgraded_profile), encoding="utf-8")
+
+        with mock.patch.object(apply_profile, "profile_path", return_value=upgraded_profile_path):
+            result = self.apply()
+            check_result = self.apply(check=True)
+
+        self.assertTrue(result.changed)
+        self.assertFalse(check_result.changed)
+        settings = self.read_settings()
+        self.assertNotIn("Bash(npm publish *)", settings["permissions"]["ask"])
+        self.assertIn("Bash(custom deploy *)", settings["permissions"]["ask"])
+        state = self.read_state()
+        self.assertNotIn("Bash(npm publish *)", state["insertedSettings"].get("permissions.ask", []))
+
+    def test_reapply_without_sandbox_flag_preserves_active_overlay(self):
+        self.apply_with_supported_sandbox()
+
+        with mock.patch.object(apply_profile, "ensure_sandbox_supported"):
+            result = self.apply()
+
+        self.assertFalse(result.changed)
+        self.assertTrue(self.read_settings()["sandbox"]["enabled"])
+        self.assertTrue(self.read_state()["sandboxOverlay"]["enabled"])
+
     def test_no_semantic_change_keeps_existing_formatting(self):
         data = json.loads(apply_profile.profile_path("baseline").read_text(encoding="utf-8"))
         policy = json.loads(apply_profile.default_policy_path("baseline").read_text(encoding="utf-8"))
