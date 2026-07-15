@@ -275,7 +275,8 @@ class ApplyProfileTests(unittest.TestCase):
     def test_switch_profile_preserves_sandbox_overlay(self):
         self.apply_with_supported_sandbox()
 
-        result = self.apply("strict")
+        with mock.patch.object(apply_profile, "ensure_sandbox_supported"):
+            result = self.apply("strict")
 
         self.assertTrue(result.changed)
         settings = self.read_settings()
