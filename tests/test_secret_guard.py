@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,20 @@ def write_payload(path, content, cwd, tool_name="Write"):
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": tool_input,
+        "cwd": str(cwd),
+    }
+
+
+def edit_payload(path, old_string, new_string, cwd, replace_all=False):
+    return {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": str(path),
+            "old_string": old_string,
+            "new_string": new_string,
+            "replace_all": replace_all,
+        },
         "cwd": str(cwd),
     }
 
@@ -141,12 +156,85 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(completed.stdout, "")
         self.assertEqual(completed.stderr, "")
 
-    def test_edit_uses_new_string(self):
-        completed = self.run_guard(write_payload(self.tracked_file, f'token = "{GITHUB_PAT}"', self.project, tool_name="Edit"))
+    def test_edit_scans_resulting_content(self):
+        current = self.tracked_file.read_text(encoding="utf-8")
+        completed = self.run_guard(
+            edit_payload(self.tracked_file, current, f'token = "{GITHUB_PAT}"\n', self.project)
+        )
         hook_output = self.hook_output(completed)
 
         self.assertEqual(hook_output["permissionDecision"], "deny")
         self.assertIn("[SECRET-GITHUB-PAT]", hook_output["permissionDecisionReason"])
+
+    def test_edit_detects_secret_assembled_from_existing_prefix(self):
+        self.tracked_file.write_text('token = "ghp_PLACEHOLDER"\n', encoding="utf-8")
+        suffix = GITHUB_PAT[len("ghp_") :]
+
+        completed = self.run_guard(
+            edit_payload(self.tracked_file, "PLACEHOLDER", suffix, self.project)
+        )
+        hook_output = self.hook_output(completed)
+
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[SECRET-GITHUB-PAT]", hook_output["permissionDecisionReason"])
+
+    def test_edit_replace_all_scans_all_replacements(self):
+        self.tracked_file.write_text("ghp_PLACEHOLDER\nghp_PLACEHOLDER\n", encoding="utf-8")
+        suffix = GITHUB_PAT[len("ghp_") :]
+
+        completed = self.run_guard(
+            edit_payload(self.tracked_file, "PLACEHOLDER", suffix, self.project, replace_all=True)
+        )
+        hook_output = self.hook_output(completed)
+
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[SECRET-GITHUB-PAT]", hook_output["permissionDecisionReason"])
+
+    def test_safe_edit_has_no_decision(self):
+        completed = self.run_guard(
+            edit_payload(self.tracked_file, "hello", "goodbye", self.project)
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, "")
+
+    def test_ambiguous_edit_requires_confirmation(self):
+        self.tracked_file.write_text("same\nsame\n", encoding="utf-8")
+
+        completed = self.run_guard(
+            edit_payload(self.tracked_file, "same", "different", self.project)
+        )
+        hook_output = self.hook_output(completed)
+
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[SECRET-EDIT-UNCERTAIN]", hook_output["permissionDecisionReason"])
+
+    def test_missing_edit_target_requires_confirmation(self):
+        target = self.project / "src" / "missing.py"
+
+        completed = self.run_guard(edit_payload(target, "old", "new", self.project))
+        hook_output = self.hook_output(completed)
+
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[SECRET-EDIT-UNCERTAIN]", hook_output["permissionDecisionReason"])
+
+    def test_edit_read_error_requires_confirmation(self):
+        payload = edit_payload(self.tracked_file, "hello", "goodbye", self.project)
+
+        with mock.patch("guard.edit_content.Path.read_text", side_effect=OSError("read failed")):
+            decision = evaluate(payload)
+
+        self.assertEqual(decision.kind, DecisionKind.ASK)
+        self.assertEqual(decision.rule_id, "SECRET-EDIT-UNCERTAIN")
+
+    def test_edit_decode_error_requires_confirmation(self):
+        self.tracked_file.write_bytes(b"\xff\xfe")
+
+        completed = self.run_guard(edit_payload(self.tracked_file, "old", "new", self.project))
+        hook_output = self.hook_output(completed)
+
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[SECRET-EDIT-UNCERTAIN]", hook_output["permissionDecisionReason"])
 
     def test_fine_grained_github_pat_is_denied(self):
         completed = self.run_guard(write_payload(self.tracked_file, f'token = "{FINE_GRAINED_GITHUB_PAT}"', self.project))

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .decisions import Decision, DecisionKind
+from .edit_content import EditReconstructionError, reconstruct_edit
 
 
 GIT_TIMEOUT_SECONDS = 2
@@ -85,7 +86,16 @@ class SecretInput:
 
 
 def evaluate(payload: dict[str, Any]) -> Decision:
-    secret_input = extract_secret_input(payload)
+    try:
+        secret_input = extract_secret_input(payload)
+    except (OSError, EditReconstructionError) as exc:
+        if payload.get("tool_name") != "Edit":
+            raise
+        display_path = edit_display_path(payload)
+        return Decision.ask(
+            "SECRET-EDIT-UNCERTAIN",
+            f"Unable to reconstruct Edit result for {display_path}: {exc} Confirm the edit before applying it.",
+        )
     if secret_input is None:
         return Decision.none()
 
@@ -115,14 +125,16 @@ def extract_secret_input(payload: dict[str, Any]) -> SecretInput | None:
     if not isinstance(raw_file_path, str) or not raw_file_path:
         return None
 
-    content_key = "content" if tool_name == "Write" else "new_string"
-    content = tool_input.get(content_key)
-    if not isinstance(content, str) or not content:
-        return None
-
     cwd = payload.get("cwd")
     cwd_path = Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
     file_path = resolve_file_path(raw_file_path, cwd_path)
+    if tool_name == "Write":
+        content = tool_input.get("content")
+        if not isinstance(content, str) or not content:
+            return None
+    else:
+        content = reconstruct_edit(file_path, tool_input).final_content
+
     return SecretInput(
         tool_name=tool_name,
         file_path=file_path,
@@ -130,6 +142,15 @@ def extract_secret_input(payload: dict[str, Any]) -> SecretInput | None:
         content=content,
         cwd=cwd_path,
     )
+
+
+def edit_display_path(payload: dict[str, Any]) -> str:
+    tool_input = payload.get("tool_input")
+    if isinstance(tool_input, dict):
+        file_path = tool_input.get("file_path")
+        if isinstance(file_path, str) and file_path:
+            return file_path
+    return "the target file"
 
 
 def resolve_file_path(raw_file_path: str, cwd: Path) -> Path:

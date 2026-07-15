@@ -12,6 +12,14 @@ from pathlib import Path
 from typing import Any
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+HOOKS_DIR = SCRIPT_DIR.parent
+if str(HOOKS_DIR) not in sys.path:
+    sys.path.insert(0, str(HOOKS_DIR))
+
+from guard.edit_content import reconstruct_edit  # noqa: E402
+
+
 DEFAULT_WARNING_LINES = 800
 DEFAULT_ASK_ON_CREATE_LINES = 1200
 DEFAULT_ASK_ON_GROWTH_LINES = 100
@@ -192,29 +200,11 @@ def write_file_state(file_path: Path, content: str) -> FileState:
 
 
 def edit_file_state(file_path: Path, tool_input: dict[str, Any]) -> FileState:
-    if not file_path.exists():
-        raise ValueError("Unable to evaluate file size because Edit target does not exist.")
-
-    old_string = tool_input.get("old_string")
-    new_string = tool_input.get("new_string")
-    replace_all = bool(tool_input.get("replace_all", False))
-    if not isinstance(old_string, str) or old_string == "":
-        raise ValueError("Unable to evaluate file size because old_string is missing.")
-    if not isinstance(new_string, str):
-        raise ValueError("Unable to evaluate file size because new_string is missing.")
-
-    content = file_path.read_text(encoding="utf-8")
-    matches = content.count(old_string)
-    if matches == 0:
-        raise ValueError("Unable to evaluate file size because old_string was not found.")
-    if matches > 1 and not replace_all:
-        raise ValueError("Unable to evaluate file size because old_string is not unique.")
-
-    final_content = content.replace(old_string, new_string) if replace_all else content.replace(old_string, new_string, 1)
+    reconstructed = reconstruct_edit(file_path, tool_input)
     return FileState(
         exists=True,
-        current_lines=count_content_lines(content),
-        final_lines=count_content_lines(final_content),
+        current_lines=count_content_lines(reconstructed.current_content),
+        final_lines=count_content_lines(reconstructed.final_content),
     )
 
 
