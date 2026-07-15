@@ -178,5 +178,34 @@
     },
     "decision": "deny",
     "rule": "PRODUCTION-DESTRUCTIVE"
+  },
+  {
+    "name": "kubectl as value before delete asks",
+    "command": "kubectl --as admin delete deployment app",
+    "decision": "ask",
+    "rule": "KUBECTL-DELETE"
+  },
+  {
+    "name": "kubectl as equals before protected delete denies",
+    "command": "kubectl --as=admin delete namespace default",
+    "decision": "deny",
+    "rule": "KUBECTL-PROTECTED-NAMESPACE"
+  },
+  {
+    "name": "kubectl request timeout before delete asks",
+    "command": "kubectl --request-timeout 5s delete deployment app",
+    "decision": "ask",
+    "rule": "KUBECTL-DELETE"
+  },
+  {
+    "name": "kubectl boolean global before safe verb is allowed",
+    "command": "kubectl --warnings-as-errors get pods",
+    "decision": "none"
+  },
+  {
+    "name": "kubectl unknown leading option asks",
+    "command": "kubectl --future-option value delete namespace default",
+    "decision": "ask",
+    "rule": "KUBECTL-OPTION-UNCERTAINTY"
   }
 ]

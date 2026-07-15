@@ -161,6 +161,25 @@ find_git_subcommand_index() {
   return 1
 }
 
+commit_short_option_has_no_verify() {
+  local token=$1
+  local cluster char
+
+  [[ "$token" == -* && "$token" != --* ]] || return 1
+  cluster=${token#-}
+  while [[ -n "$cluster" ]]; do
+    char=${cluster:0:1}
+    if [[ "$char" == "n" ]]; then
+      return 0
+    fi
+    if [[ "$char" == [mFCcS] ]]; then
+      return 1
+    fi
+    cluster=${cluster:1}
+  done
+  return 1
+}
+
 segment_blocks() {
   local -a segment=("$@")
   local i=0
@@ -174,7 +193,7 @@ segment_blocks() {
     i=$((i + 1))
   done
 
-  if [[ $i -ge ${#segment[@]} || "${segment[i]}" != "git" ]]; then
+  if [[ $i -ge ${#segment[@]} || "${segment[i]##*/}" != "git" ]]; then
     return 1
   fi
 
@@ -206,6 +225,9 @@ segment_blocks() {
     fi
 
     if [[ "$token" == "--no-verify" ]]; then
+      return 0
+    fi
+    if [[ "$subcommand" == "commit" ]] && commit_short_option_has_no_verify "$token"; then
       return 0
     fi
   done

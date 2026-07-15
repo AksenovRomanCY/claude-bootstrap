@@ -5,8 +5,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-SEPARATORS = {"&&", "||", ";", "|", "\n"}
+SEPARATORS = {"&&", "||", ";", "&", "|", "|&", "\n"}
 WRAPPERS = {"sudo", "env", "command", "nohup"}
+CONTROL_WORDS = {
+    "!",
+    "{",
+    "}",
+    "case",
+    "coproc",
+    "do",
+    "done",
+    "elif",
+    "else",
+    "esac",
+    "fi",
+    "for",
+    "function",
+    "if",
+    "in",
+    "select",
+    "then",
+    "time",
+    "until",
+    "while",
+}
 
 
 @dataclass(frozen=True)
@@ -131,6 +153,15 @@ def tokenize(command: str) -> TokenizeResult:
             index += 1
             continue
 
+        if command.startswith(";;&", index) or command.startswith(";;", index) or command.startswith(";&", index):
+            add_unsupported(unsupported, "unsupported control operator")
+            if token:
+                tokens.append(token)
+                token = ""
+            tokens.append(";")
+            index += 3 if command.startswith(";;&", index) else 2
+            continue
+
         if char == ";":
             if token:
                 tokens.append(token)
@@ -144,6 +175,22 @@ def tokenize(command: str) -> TokenizeResult:
                 tokens.append(token)
                 token = ""
             tokens.append("&&")
+            index += 2
+            continue
+
+        if char == "&":
+            if token:
+                tokens.append(token)
+                token = ""
+            tokens.append("&")
+            index += 1
+            continue
+
+        if char == "|" and index + 1 < len(command) and command[index + 1] == "&":
+            if token:
+                tokens.append(token)
+                token = ""
+            tokens.append("|&")
             index += 2
             continue
 
@@ -163,11 +210,23 @@ def tokenize(command: str) -> TokenizeResult:
             index += 1
             continue
 
+        if char == "(" and not (index > 0 and command[index - 1] in {"$", "<", ">"}):
+            add_unsupported(unsupported, "subshell or grouping")
+        if char == ")" and not any(
+            construct in unsupported for construct in {"command substitution", "process substitution"}
+        ):
+            add_unsupported(unsupported, "subshell or grouping")
+        if char in {"<", ">"} and index + 1 < len(command) and command[index + 1] == "(":
+            add_unsupported(unsupported, "process substitution")
+
         token += char
         index += 1
 
     if escaped:
+        add_unsupported(unsupported, "trailing escape")
         token += "\\"
+    if quote:
+        add_unsupported(unsupported, "unterminated quote")
     if token:
         tokens.append(token)
     return TokenizeResult(tokens=tokens, unsupported=unsupported)
@@ -240,6 +299,8 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
         unsupported.append("inline interpreter code")
     if normalized and normalized[0] in {"powershell", "pwsh"}:
         unsupported.append("powershell")
+    if normalized and normalized[0] in CONTROL_WORDS:
+        add_unsupported(unsupported, "shell control syntax")
 
     return CommandSegment(words=normalized, env=env, wrappers=wrappers, unsupported=unsupported)
 
@@ -269,5 +330,5 @@ def parse(command: str) -> ShellParseResult:
             separators.append(pending_separator)
         segments.append(segment)
 
-    unsupported = sorted({item for segment in segments for item in segment.unsupported})
+    unsupported = sorted({*tokenized.unsupported, *(item for segment in segments for item in segment.unsupported)})
     return ShellParseResult(segments=segments, unsupported=unsupported, separators=separators)

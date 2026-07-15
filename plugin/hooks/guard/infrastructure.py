@@ -32,14 +32,37 @@ PRODUCTION_FLAG_NAMES = {
 REMOTE_SCRIPT_SHELLS = {"sh", "bash"}
 TERRAFORM_GLOBAL_OPTIONS_WITH_VALUES = {"-chdir"}
 KUBECTL_GLOBAL_OPTIONS_WITH_VALUES = {
+    "--as",
+    "--as-group",
+    "--as-uid",
+    "--cache-dir",
+    "--certificate-authority",
+    "--client-certificate",
+    "--client-key",
+    "--cluster",
     "--context",
     "--kubeconfig",
+    "--log-flush-frequency",
     "--namespace",
+    "--password",
+    "--profile",
+    "--profile-output",
+    "--request-timeout",
     "--server",
+    "--tls-server-name",
     "--token",
     "--user",
-    "--cluster",
+    "--username",
+    "--v",
+    "--vmodule",
     "-n",
+    "-v",
+}
+KUBECTL_GLOBAL_BOOLEAN_OPTIONS = {
+    "--disable-compression",
+    "--insecure-skip-tls-verify",
+    "--match-server-version",
+    "--warnings-as-errors",
 }
 HELM_GLOBAL_OPTIONS_WITH_VALUES = {"--kube-context", "--namespace", "-n"}
 KUBECTL_DELETE_OPTIONS_WITH_VALUES = {
@@ -154,7 +177,12 @@ def classify_operation(segment: CommandSegment) -> Operation | None:
             return Operation("TERRAFORM-DESTROY", "Confirm terraform destroy.", production_sensitive=True)
 
     if command == "kubectl":
-        action, action_args = action_after_options(args, KUBECTL_GLOBAL_OPTIONS_WITH_VALUES)
+        action, action_args, uncertain_option = kubectl_action_after_options(args)
+        if uncertain_option is not None:
+            return Operation(
+                "KUBECTL-OPTION-UNCERTAINTY",
+                f"Unable to determine the kubectl action after leading option {uncertain_option}; confirm the command.",
+            )
         if action != "delete":
             return None
         if deletes_protected_namespace(action_args):
@@ -219,6 +247,38 @@ def action_after_options(args: list[str], value_options: set[str]) -> tuple[str 
     if index < len(args):
         return args[index], args[index + 1 :]
     return None, []
+
+
+def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str], str | None]:
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--":
+            index += 1
+            break
+
+        option_name = token.split("=", 1)[0]
+        if option_name in KUBECTL_GLOBAL_OPTIONS_WITH_VALUES:
+            if "=" in token:
+                index += 1
+                continue
+            if index + 1 >= len(args) or args[index + 1] == "--":
+                return None, [], token
+            index += 2
+            continue
+
+        if option_name in KUBECTL_GLOBAL_BOOLEAN_OPTIONS:
+            index += 1
+            continue
+
+        if token.startswith("-"):
+            return None, [], token
+
+        return token, args[index + 1 :], None
+
+    if index < len(args):
+        return args[index], args[index + 1 :], None
+    return None, [], None
 
 
 def normalized_command(segment: CommandSegment) -> str | None:

@@ -84,7 +84,7 @@ def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
 
 def parse_git_invocation(segment: CommandSegment) -> GitInvocation | None:
     words = segment.words
-    if not words or words[0] != "git":
+    if not words or Path(words[0]).name != "git":
         return None
 
     index = 1
@@ -192,14 +192,21 @@ def has_bypass_environment(segment: CommandSegment) -> bool:
 
 
 def evaluate_commit(invocation: GitInvocation) -> list[Decision]:
-    if has_no_verify(invocation.args, COMMIT_OPTIONS_WITH_VALUES):
-        return [Decision.deny("GIT-HOOK-BYPASS", "Do not bypass hooks with git commit --no-verify.")]
+    if has_no_verify(invocation.args, COMMIT_OPTIONS_WITH_VALUES, short_alias="-n"):
+        return [Decision.deny("GIT-HOOK-BYPASS", "Do not bypass hooks with git commit --no-verify or -n.")]
     return []
 
 
 def evaluate_push(invocation: GitInvocation, context: GitContext) -> list[Decision]:
     if has_no_verify(invocation.args, PUSH_OPTIONS_WITH_VALUES):
         return [Decision.deny("GIT-HOOK-BYPASS", "Do not bypass hooks with git push --no-verify.")]
+    if push_has_mirror(invocation.args):
+        return [
+            Decision.deny(
+                "GIT-PUSH-MIRROR",
+                "Do not mirror all refs. Push an explicit refspec instead.",
+            )
+        ]
 
     decisions: list[Decision] = []
     force = push_force_kind(invocation.args)
@@ -287,18 +294,47 @@ def evaluate_checkout(invocation: GitInvocation) -> list[Decision]:
     return []
 
 
-def has_no_verify(args: list[str], value_options: set[str]) -> bool:
+def has_no_verify(args: list[str], value_options: set[str], *, short_alias: str | None = None) -> bool:
     index = 0
     while index < len(args):
         token = args[index]
         if token == "--":
             return False
-        if token == "--no-verify":
+        if token == "--no-verify" or (short_alias is not None and token == short_alias):
+            return True
+        if short_alias is not None and has_short_alias_in_cluster(token, short_alias, value_options):
             return True
         if option_takes_value(token, value_options):
             index += 2
             continue
         index += 1
+    return False
+
+
+def has_short_alias_in_cluster(token: str, short_alias: str, value_options: set[str]) -> bool:
+    if not token.startswith("-") or token.startswith("--") or len(short_alias) != 2:
+        return False
+
+    alias = short_alias[1]
+    value_option_chars = {
+        option[1]
+        for option in value_options
+        if option.startswith("-") and not option.startswith("--") and len(option) == 2
+    }
+    for char in token[1:]:
+        if char == alias:
+            return True
+        if char in value_option_chars:
+            return False
+    return False
+
+
+def push_has_mirror(args: list[str]) -> bool:
+    for token in args:
+        if token == "--":
+            return False
+        if token == "--mirror":
+            return True
     return False
 
 

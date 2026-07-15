@@ -175,5 +175,39 @@
     "command": "grep -- \"--no-verify\" README.md",
     "branch": "feature",
     "decision": "none"
+  },
+  {
+    "name": "commit short no verify denies",
+    "command": "git commit -n -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "commit bundled short no verify denies",
+    "command": "git commit -nm test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "absolute git commit short no verify denies",
+    "command": "/usr/bin/git commit -n -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "push short dry run is allowed",
+    "command": "git push -n origin feature",
+    "branch": "feature",
+    "decision": "none"
+  },
+  {
+    "name": "mirror push always denies",
+    "command": "git push --mirror origin",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PUSH-MIRROR"
   }
 ]

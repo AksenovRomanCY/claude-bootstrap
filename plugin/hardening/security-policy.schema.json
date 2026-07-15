@@ -130,7 +130,7 @@
       "additionalProperties": false,
       "properties": {
         "parserUncertainty": {
-          "description": "Decision level for suspicious or unsupported shell parser constructs.",
+          "description": "Legacy compatibility setting. Unsupported shell parser constructs always require confirmation.",
           "type": "string",
           "enum": [
             "warning",

@@ -230,18 +230,27 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(completed.stdout, "")
         self.assertEqual(completed.stderr, "")
 
-    def test_unsupported_construct_adds_context(self):
+    def test_unsupported_construct_requires_confirmation(self):
         completed = self.run_guard(bash_payload("echo $(date)"))
 
         self.assertEqual(completed.returncode, 0)
         output = json.loads(completed.stdout)
         hook_output = output["hookSpecificOutput"]
-        self.assertIn("additionalContext", hook_output)
-        self.assertIn("[UNSUPPORTED-SHELL]", hook_output["additionalContext"])
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[UNSUPPORTED-SHELL]", hook_output["permissionDecisionReason"])
 
     def test_strict_parser_uncertainty_requires_confirmation(self):
         with strict_policy_workspace() as cwd:
             completed = self.run_guard(bash_payload("echo $(date)", cwd))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[UNSUPPORTED-SHELL]", hook_output["permissionDecisionReason"])
+
+    def test_shell_control_syntax_requires_confirmation(self):
+        completed = self.run_guard(bash_payload("if true; then git commit -n -m test; fi"))
 
         self.assertEqual(completed.returncode, 0)
         output = json.loads(completed.stdout)
@@ -257,6 +266,24 @@ class CommandGuardTests(unittest.TestCase):
         hook_output = output["hookSpecificOutput"]
         self.assertEqual(hook_output["permissionDecision"], "deny")
         self.assertIn("[GIT-HOOK-BYPASS]", hook_output["permissionDecisionReason"])
+
+    def test_background_bash_payload_runs_each_segment_through_guard(self):
+        completed = self.run_guard(bash_payload("git status & git commit -n -m test"))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[GIT-HOOK-BYPASS]", hook_output["permissionDecisionReason"])
+
+    def test_stderr_pipe_payload_runs_each_segment_through_guard(self):
+        completed = self.run_guard(bash_payload("safe-command |& git push --mirror origin"))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[GIT-PUSH-MIRROR]", hook_output["permissionDecisionReason"])
 
     def test_non_bash_tool_outputs_nothing(self):
         completed = self.run_guard({"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {}})
