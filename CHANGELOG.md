@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Run one unconditional Bash command guard so absolute executable paths cannot bypass hook dispatch
+- Parse background and stderr-pipe separators fail-closed, and block `git commit -n` and `git push --mirror` bypasses
+- Scan reconstructed Edit results for secrets and reconcile same-profile hardening upgrades without stale managed settings
+
 ### Added
 - Hardening release documentation for `/bootstrap`, `/harden --baseline`, `/harden --strict`, `/harden --baseline --sandbox`, `/harden --check`, `/harden --remove`, and `/doctor`
 - Destructive operations guidance rule and project hardening profiles for baseline, strict, and explicit sandbox overlay workflows
