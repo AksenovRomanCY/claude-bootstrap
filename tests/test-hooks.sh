@@ -72,52 +72,12 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   fi
 
   if jq -e --arg command "$expected_command" '
-    [
-      "Bash(git *)",
-      "Bash(rm *)",
-      "Bash(sudo *)",
-      "Bash(env *)",
-      "Bash(command *)",
-      "Bash(nohup *)",
-      "Bash(curl *)",
-      "Bash(wget *)",
-      "Bash(terraform *)",
-      "Bash(kubectl *)",
-      "Bash(helm *)",
-      "Bash(docker *)",
-      "Bash(npm *)",
-      "Bash(pnpm *)",
-      "Bash(yarn *)",
-      "Bash(cargo *)",
-      "Bash(twine *)",
-      "Bash(gh *)",
-      "Bash(psql *)",
-      "Bash(mysql *)",
-      "Bash(sqlite3 *)",
-      "Bash(prisma *)",
-      "Bash(alembic *)",
-      "Bash(mkfs *)",
-      "Bash(wipefs *)",
-      "Bash(fdisk *)",
-      "Bash(parted *)",
-      "Bash(dd *)",
-      "Bash(chmod *)",
-      "Bash(chown *)"
-    ] as $expected_ifs |
-    [.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?] as $hooks |
-    ($hooks | length) == ($expected_ifs | length)
-    and ($hooks | all(.type == "command" and .command == $command and .timeout == 30 and (.if | type) == "string"))
-    and (($hooks | map(.if) | sort) == ($expected_ifs | sort))
+    [.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?]
+    == [{"type":"command","command":$command,"timeout":30}]
   ' "$config" > /dev/null; then
-    pass "$(basename "$config") uses expected Bash if-scoped command_guard.py hooks"
+    pass "$(basename "$config") uses one unconditional Bash command_guard.py hook"
   else
-    fail "$(basename "$config") should use expected Bash if-scoped command_guard.py hooks"
-  fi
-
-  if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | has("if")] | all' "$config" > /dev/null; then
-    pass "$(basename "$config") uses handler-level if for Bash guard"
-  else
-    fail "$(basename "$config") should use handler-level if for Bash guard"
+    fail "$(basename "$config") should use one unconditional Bash command_guard.py hook"
   fi
 
   if jq -e --arg command "$expected_command" '

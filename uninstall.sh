@@ -42,11 +42,27 @@ settings_cleanup_jq_program() {
   cat <<'JQ'
 def is_legacy_hook:
   (.command // "" | test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"));
+def canonical_matcher:
+  split("|") | map(gsub("^\\s+|\\s+$"; "")) | sort | unique | join("|");
+def historical_guard_conditions:
+  [
+    "Bash(git *)", "Bash(rm *)", "Bash(sudo *)", "Bash(env *)", "Bash(command *)", "Bash(nohup *)",
+    "Bash(curl *)", "Bash(wget *)", "Bash(terraform *)", "Bash(kubectl *)", "Bash(helm *)", "Bash(docker *)",
+    "Bash(npm *)", "Bash(pnpm *)", "Bash(yarn *)", "Bash(cargo *)", "Bash(twine *)", "Bash(gh *)",
+    "Bash(psql *)", "Bash(mysql *)", "Bash(sqlite3 *)", "Bash(prisma *)", "Bash(alembic *)", "Bash(mkfs *)",
+    "Bash(wipefs *)", "Bash(fdisk *)", "Bash(parted *)", "Bash(dd *)", "Bash(chmod *)", "Bash(chown *)"
+  ];
+def is_historical_scoped_guard:
+  . as $hook |
+  (($hook.command // "") == "python3 ~/.claude/hooks/scripts/command_guard.py")
+  and (($hook.timeout // 0) == 30)
+  and ((historical_guard_conditions | index($hook.if // "")) != null);
 def hook_fingerprint($event; $matcher):
-  [$event, $matcher, (.type // ""), (.command // ""), (.if // ""), (.args // [])] | @json;
+  [$event, ($matcher | canonical_matcher), (.type // ""), (.command // ""), (.if // ""), (.args // [])] | @json;
 def should_remove($bootstrap; $event; $matcher):
   . as $hook |
-  is_legacy_hook or (($bootstrap | index(($hook | hook_fingerprint($event; $matcher)))) != null);
+  is_legacy_hook or is_historical_scoped_guard
+  or (($bootstrap | index(($hook | hook_fingerprint($event; $matcher)))) != null);
 def clean_group($bootstrap; $event):
   (.matcher // "") as $matcher |
   .hooks = ((.hooks // []) | map(select(should_remove($bootstrap; $event; $matcher) | not)))

@@ -167,6 +167,21 @@ settings_jq_program() {
   cat <<'JQ'
 def is_legacy_hook:
   (.command // "" | test("block-no-verify\\.sh|block-large-files\\.sh|warn-secrets\\.sh|warn-debug-code\\.sh"));
+def canonical_matcher:
+  split("|") | map(gsub("^\\s+|\\s+$"; "")) | sort | unique | join("|");
+def historical_guard_conditions:
+  [
+    "Bash(git *)", "Bash(rm *)", "Bash(sudo *)", "Bash(env *)", "Bash(command *)", "Bash(nohup *)",
+    "Bash(curl *)", "Bash(wget *)", "Bash(terraform *)", "Bash(kubectl *)", "Bash(helm *)", "Bash(docker *)",
+    "Bash(npm *)", "Bash(pnpm *)", "Bash(yarn *)", "Bash(cargo *)", "Bash(twine *)", "Bash(gh *)",
+    "Bash(psql *)", "Bash(mysql *)", "Bash(sqlite3 *)", "Bash(prisma *)", "Bash(alembic *)", "Bash(mkfs *)",
+    "Bash(wipefs *)", "Bash(fdisk *)", "Bash(parted *)", "Bash(dd *)", "Bash(chmod *)", "Bash(chown *)"
+  ];
+def is_historical_scoped_guard:
+  . as $hook |
+  (($hook.command // "") == "python3 ~/.claude/hooks/scripts/command_guard.py")
+  and (($hook.timeout // 0) == 30)
+  and ((historical_guard_conditions | index($hook.if // "")) != null);
 def hook_key:
   [(.type // ""), (.command // ""), (.if // ""), (.args // [])] | @json;
 def dedupe_hooks:
@@ -181,17 +196,27 @@ def dedupe_hooks:
     end
   );
 def clean_group:
-  .hooks = ((.hooks // []) | map(select(is_legacy_hook | not)) | dedupe_hooks)
+  .hooks = ((.hooks // []) | map(select((is_legacy_hook or is_historical_scoped_guard) | not)) | dedupe_hooks)
   | select((.hooks | length) > 0);
+def merge_equivalent_groups:
+  reduce .[] as $group ([];
+    (($group.matcher // "") | canonical_matcher) as $matcher |
+    (map(((.matcher // "") | canonical_matcher) == $matcher) | index(true)) as $index |
+    if $index == null then
+      . + [$group]
+    else
+      .[$index].hooks = ((.[$index].hooks // []) + ($group.hooks // []) | dedupe_hooks)
+    end
+  );
 def clean_hooks:
-  (.hooks // {}) | with_entries(.value = ((.value // []) | map(clean_group)));
+  (.hooks // {}) | with_entries(.value = ((.value // []) | map(clean_group) | merge_equivalent_groups));
 def merge_hooks($desired):
   reduce (($desired.hooks // {}) | to_entries[]) as $event (.;
     .hooks[$event.key] = (
       (.hooks[$event.key] // []) as $existing |
       reduce (($event.value // [])[]) as $group ($existing;
-        ($group.matcher // "") as $matcher |
-        (map((.matcher // "") == $matcher) | index(true)) as $index |
+        (($group.matcher // "") | canonical_matcher) as $matcher |
+        (map(((.matcher // "") | canonical_matcher) == $matcher) | index(true)) as $index |
         if $index == null then
           . + [$group]
         else
