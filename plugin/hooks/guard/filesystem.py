@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .context import HookContext
 from .decisions import Decision
+from .options import has_option, positional_args
 from .paths import find_project_root_literal, normalize_existing_path
 from .shell import CommandSegment, ShellParseResult
 
@@ -61,7 +62,7 @@ def evaluate_segment(segment: CommandSegment, context: FilesystemContext) -> lis
         decisions.append(Decision.deny("FS-DD-DEVICE", "Do not write directly to /dev devices with dd."))
     elif command == "rm":
         decisions.extend(evaluate_rm(segment, context))
-    elif command in {"chmod", "chown"} and has_recursive_flag(segment.args):
+    elif command in {"chmod", "chown"} and has_option(segment.args, ["--recursive"], short_letters="rR"):
         decisions.append(
             Decision.ask(
                 f"FS-{command.upper()}-RECURSIVE",
@@ -88,8 +89,15 @@ def dd_writes_device(args: list[str]) -> bool:
     return False
 
 
+def is_recursive_force(args: list[str]) -> bool:
+    """`rm -rf` in any spelling: separate flags, a cluster, or long options."""
+    recursive = has_option(args, ["--recursive"], short_letters="rR")
+    force = has_option(args, ["--force"], short_letters="f")
+    return recursive and force
+
+
 def evaluate_rm(segment: CommandSegment, context: FilesystemContext) -> list[Decision]:
-    if not rm_is_recursive_force(segment.args):
+    if not is_recursive_force(segment.args):
         return []
 
     path_args = positional_args(segment.args, set())
@@ -120,58 +128,6 @@ def evaluate_rm(segment: CommandSegment, context: FilesystemContext) -> list[Dec
         decisions.append(Decision.ask("FS-RM-RF", f"Confirm recursive deletion of {raw_path}."))
 
     return decisions
-
-
-def rm_is_recursive_force(args: list[str]) -> bool:
-    recursive = False
-    force = False
-
-    for token in args:
-        if token == "--":
-            break
-        if token in {"-r", "-R", "--recursive"}:
-            recursive = True
-        elif token in {"-f", "--force"}:
-            force = True
-        elif token.startswith("-") and not token.startswith("--"):
-            flags = token[1:]
-            recursive = recursive or "r" in flags or "R" in flags
-            force = force or "f" in flags
-
-    return recursive and force
-
-
-def has_recursive_flag(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            break
-        if token in {"-R", "-r", "--recursive"}:
-            return True
-        if token.startswith("-") and not token.startswith("--") and ("R" in token[1:] or "r" in token[1:]):
-            return True
-    return False
-
-
-def positional_args(args: list[str], value_options: set[str]) -> list[str]:
-    positionals: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            positionals.extend(args[index + 1 :])
-            break
-        if token in value_options:
-            index += 2
-            continue
-        if token.startswith("--") and any(token.startswith(f"{option}=") for option in value_options):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        positionals.append(token)
-        index += 1
-    return positionals
 
 
 def normalize_target(raw_path: str, context: FilesystemContext) -> PathTarget:
@@ -222,5 +178,3 @@ def is_critical_rm_target(path: Path, context: FilesystemContext) -> bool:
         context.project_root / ".git",
     }
     return path in critical_paths
-
-

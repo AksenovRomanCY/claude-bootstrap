@@ -19,6 +19,12 @@ from guard.paths import (  # noqa: E402
     relative_to_project,
     resolve_file_path,
 )
+from guard.options import (  # noqa: E402
+    first_positional,
+    has_option,
+    has_positional,
+    positional_args,
+)
 from guard.policy import load_policy, policy_section, string_list  # noqa: E402
 from guard.process import command_output, command_succeeds, run_command  # noqa: E402
 
@@ -222,6 +228,70 @@ class ProcessTests(unittest.TestCase):
         output = command_output(nested, self.python("import os; print(os.getcwd())"))
 
         self.assertEqual(Path(output).resolve(), nested)
+
+
+class OptionTests(unittest.TestCase):
+    def test_long_option_is_found_before_the_terminator(self):
+        self.assertTrue(has_option(["--mirror", "origin"], ["--mirror"]))
+        self.assertFalse(has_option(["--", "--mirror"], ["--mirror"]))
+        self.assertFalse(has_option(["origin", "main"], ["--mirror"]))
+
+    def test_short_letters_match_inside_a_cluster(self):
+        for args in (["-f"], ["-rf"], ["-uf", "origin"], ["--force"]):
+            with self.subTest(args=args):
+                self.assertTrue(has_option(args, ["--force"], short_letters="f"))
+        for args in (["-r"], ["--force-with-lease"], ["-"], ["--", "-f"]):
+            with self.subTest(args=args):
+                self.assertFalse(has_option(args, ["--force"], short_letters="f"))
+
+    def test_rm_recursive_force_spellings(self):
+        def recursive_force(args):
+            return has_option(args, ["--recursive"], short_letters="rR") and has_option(
+                args, ["--force"], short_letters="f"
+            )
+
+        for args in (["-rf"], ["-r", "-f"], ["-R", "--force"], ["--recursive", "--force"], ["-fR"]):
+            with self.subTest(args=args):
+                self.assertTrue(recursive_force(args))
+        for args in (["-r"], ["-f"], ["--recursive"]):
+            with self.subTest(args=args):
+                self.assertFalse(recursive_force(args))
+
+    def test_positionals_skip_options_and_their_values(self):
+        args = ["--namespace", "prod", "-v", "pods", "web"]
+
+        self.assertEqual(positional_args(args, {"--namespace", "-n"}), ["pods", "web"])
+
+    def test_positionals_skip_attached_option_values(self):
+        args = ["--namespace=prod", "pods"]
+
+        self.assertEqual(positional_args(args, {"--namespace"}), ["pods"])
+
+    def test_everything_after_the_terminator_is_positional(self):
+        args = ["--force", "--", "-weird-file", "another"]
+
+        self.assertEqual(positional_args(args, set()), ["-weird-file", "another"])
+
+    def test_first_positional_returns_the_action_and_the_rest(self):
+        action, rest = first_positional(["-chdir=infra", "apply", "-auto-approve"], {"-chdir"})
+
+        self.assertEqual(action, "apply")
+        self.assertEqual(rest, ["-auto-approve"])
+
+    def test_first_positional_after_the_terminator(self):
+        action, rest = first_positional(["--", "apply", "extra"], set())
+
+        self.assertEqual(action, "apply")
+        self.assertEqual(rest, ["extra"])
+
+    def test_first_positional_is_none_when_only_options(self):
+        self.assertEqual(first_positional(["--force", "-v"], set()), (None, []))
+
+    def test_has_positional_reports_a_path_argument(self):
+        self.assertTrue(has_positional(["--staged", "src/app.py"], {"--source"}))
+        self.assertFalse(has_positional(["--staged"], {"--source"}))
+        self.assertFalse(has_positional(["--source", "HEAD"], {"--source"}))
+        self.assertTrue(has_positional(["--", "src/app.py"], {"--source"}))
 
 
 if __name__ == "__main__":

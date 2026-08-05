@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .context import HookContext
 from .decisions import Decision
+from .options import first_positional, positional_args
 from .paths import find_project_root
 from .policy import load_policy, policy_section, string_list
 from .process import command_output
@@ -169,7 +170,7 @@ def classify_operation(segment: CommandSegment) -> Operation | None:
     args = segment.args
 
     if command == "terraform":
-        action, _action_args = action_after_options(args, TERRAFORM_GLOBAL_OPTIONS_WITH_VALUES)
+        action, _action_args = first_positional(args, TERRAFORM_GLOBAL_OPTIONS_WITH_VALUES)
         if action == "apply":
             return Operation("TERRAFORM-APPLY", "Confirm terraform apply.", production_sensitive=True)
         if action == "destroy":
@@ -189,7 +190,7 @@ def classify_operation(segment: CommandSegment) -> Operation | None:
         return Operation("KUBECTL-DELETE", "Confirm kubectl delete.", production_sensitive=True)
 
     if command == "helm":
-        action, _action_args = action_after_options(args, HELM_GLOBAL_OPTIONS_WITH_VALUES)
+        action, _action_args = first_positional(args, HELM_GLOBAL_OPTIONS_WITH_VALUES)
         if action == "uninstall":
             return Operation("HELM-UNINSTALL", "Confirm helm uninstall.", production_sensitive=True)
 
@@ -225,29 +226,6 @@ def classify_operation(segment: CommandSegment) -> Operation | None:
     return None
 
 
-def action_after_options(args: list[str], value_options: set[str]) -> tuple[str | None, list[str]]:
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            index += 1
-            break
-        if token in value_options:
-            index += 2
-            continue
-        if any(token.startswith(f"{option}=") for option in value_options):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        return token, args[index + 1 :]
-
-    if index < len(args):
-        return args[index], args[index + 1 :]
-    return None, []
-
-
 def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str], str | None]:
     index = 0
     while index < len(args):
@@ -281,7 +259,7 @@ def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str]
 
 
 def deletes_protected_namespace(args: list[str]) -> bool:
-    normalized_args = drop_options(args, KUBECTL_DELETE_OPTIONS_WITH_VALUES)
+    normalized_args = positional_args(args, KUBECTL_DELETE_OPTIONS_WITH_VALUES)
     if not normalized_args:
         return False
 
@@ -294,28 +272,6 @@ def deletes_protected_namespace(args: list[str]) -> bool:
     if resource.startswith(("namespace/", "namespaces/", "ns/")):
         return resource.split("/", 1)[1] in protected
     return False
-
-
-def drop_options(args: list[str], value_options: set[str]) -> list[str]:
-    normalized: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            normalized.extend(args[index + 1 :])
-            break
-        if token in value_options:
-            index += 2
-            continue
-        if any(token.startswith(f"{option}=") for option in value_options):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        normalized.append(token)
-        index += 1
-    return normalized
 
 
 def is_remote_script_pipe(parsed: ShellParseResult, index: int) -> bool:

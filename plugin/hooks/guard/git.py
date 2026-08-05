@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .context import HookContext
 from .decisions import Decision
+from .options import has_option, has_positional, positional_args
 from .policy import load_policy, string_list
 from .process import command_output
 from .shell import CommandSegment, ShellParseResult
@@ -218,7 +219,7 @@ def evaluate_commit(invocation: GitInvocation) -> list[Decision]:
 def evaluate_push(invocation: GitInvocation, context: GitContext) -> list[Decision]:
     if has_no_verify(invocation.args, PUSH_OPTIONS_WITH_VALUES):
         return [Decision.deny("GIT-HOOK-BYPASS", "Do not bypass hooks with git push --no-verify.")]
-    if push_has_mirror(invocation.args):
+    if has_option(invocation.args, ["--mirror"]):
         return [
             Decision.deny(
                 "GIT-PUSH-MIRROR",
@@ -291,7 +292,7 @@ def evaluate_reset(invocation: GitInvocation, context: GitContext) -> list[Decis
 
 
 def evaluate_clean(invocation: GitInvocation) -> list[Decision]:
-    if has_force_option(invocation.args):
+    if has_option(invocation.args, ["--force"], short_letters="f"):
         return [Decision.ask("GIT-CLEAN-FORCE", "Confirm git clean with force flags.")]
     return []
 
@@ -299,7 +300,7 @@ def evaluate_clean(invocation: GitInvocation) -> list[Decision]:
 def evaluate_restore(invocation: GitInvocation) -> list[Decision]:
     if has_help_option(invocation.args):
         return []
-    if has_path_argument(invocation.args, RESTORE_OPTIONS_WITH_VALUES):
+    if has_positional(invocation.args, RESTORE_OPTIONS_WITH_VALUES):
         return [Decision.ask("GIT-RESTORE", "Confirm git restore because it may discard file changes.")]
     return []
 
@@ -347,15 +348,6 @@ def has_short_alias_in_cluster(token: str, short_alias: str, value_options: set[
     return False
 
 
-def push_has_mirror(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            return False
-        if token == "--mirror":
-            return True
-    return False
-
-
 def push_force_kind(args: list[str]) -> str | None:
     for token in args:
         if token == "--":
@@ -382,7 +374,7 @@ def push_delete_target_branches(args: list[str]) -> list[str]:
     positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
     branches: list[str] = []
 
-    if push_has_delete_flag(args):
+    if has_option(args, ["--delete", "-d"]):
         branches.extend(short_branch_name(branch) for branch in positionals[1:])
 
     for refspec in push_refspecs(args):
@@ -397,15 +389,6 @@ def push_delete_target_branches(args: list[str]) -> list[str]:
 def push_refspecs(args: list[str]) -> list[str]:
     positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
     return positionals[1:] if len(positionals) > 1 else []
-
-
-def push_has_delete_flag(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            return False
-        if token in {"--delete", "-d"}:
-            return True
-    return False
 
 
 def branch_from_refspec(refspec: str, current_branch: str | None = None) -> str | None:
@@ -450,57 +433,8 @@ def branch_delete_targets(args: list[str]) -> list[str]:
     return targets
 
 
-def has_force_option(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            return False
-        if token == "--force":
-            return True
-        if token.startswith("-") and not token.startswith("--") and "f" in token[1:]:
-            return True
-    return False
-
-
 def has_help_option(args: list[str]) -> bool:
     return "-h" in args or "--help" in args
-
-
-def has_path_argument(args: list[str], value_options: set[str]) -> bool:
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            return bool(args[index + 1 :])
-        if option_takes_value(token, value_options):
-            index += 2
-            continue
-        if token.startswith("--") and any(token.startswith(f"{option}=") for option in value_options if option.startswith("--")):
-            index += 1
-            continue
-        if not token.startswith("-"):
-            return True
-        index += 1
-    return False
-
-
-def positional_args(args: list[str], value_options: set[str]) -> list[str]:
-    positionals: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            positionals.extend(args[index + 1 :])
-            break
-        if option_takes_value(token, value_options):
-            index += 2
-            continue
-        if token.startswith("--") and any(token.startswith(f"{option}=") for option in value_options if option.startswith("--")):
-            index += 1
-            continue
-        if not token.startswith("-"):
-            positionals.append(token)
-        index += 1
-    return positionals
 
 
 def option_takes_value(token: str, value_options: set[str]) -> bool:
