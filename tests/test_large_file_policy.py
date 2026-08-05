@@ -1,20 +1,16 @@
-import importlib.util
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
-HOOKS_DIR = ROOT / "plugin" / "hooks"
-LARGE_FILE_POLICY = HOOKS_DIR / "scripts" / "large_file_policy.py"
+from helpers import SCRIPTS_DIR, hook_payload, load_script, run_script, write_policy  # noqa: E402
 
-spec = importlib.util.spec_from_file_location("large_file_policy", LARGE_FILE_POLICY)
-large_file_policy = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules["large_file_policy"] = large_file_policy
-spec.loader.exec_module(large_file_policy)
+
+LARGE_FILE_POLICY = SCRIPTS_DIR / "large_file_policy.py"
+large_file_policy = load_script(LARGE_FILE_POLICY)
 
 
 def content_lines(count):
@@ -26,36 +22,29 @@ class LargeFilePolicyTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.project = Path(self.tmpdir.name)
         (self.project / ".git").mkdir()
-        policy_dir = self.project / ".claude"
-        policy_dir.mkdir()
-        (policy_dir / "security-policy.json").write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "paths": {"generated": ["**/generated/**"]},
-                    "largeFiles": {
-                        "warningLines": 800,
-                        "askOnCreateLines": 1200,
-                        "askOnGrowthLines": 100,
-                    },
-                }
-            ),
-            encoding="utf-8",
+        write_policy(
+            self.project,
+            {
+                "version": 1,
+                "paths": {"generated": ["**/generated/**"]},
+                "largeFiles": {
+                    "warningLines": 800,
+                    "askOnCreateLines": 1200,
+                    "askOnGrowthLines": 100,
+                },
+            },
         )
 
     def tearDown(self):
         self.tmpdir.cleanup()
 
     def payload(self, tool_name, file_path, **tool_input):
-        return {
-            "hook_event_name": "PreToolUse",
-            "tool_name": tool_name,
-            "tool_input": {
-                "file_path": str(file_path),
-                **tool_input,
-            },
-            "cwd": str(self.project),
-        }
+        return hook_payload(
+            "PreToolUse",
+            tool_name,
+            {"file_path": str(file_path), **tool_input},
+            cwd=self.project,
+        )
 
     def decision(self, output):
         if output is None:

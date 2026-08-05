@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import os
 import subprocess
@@ -9,80 +8,45 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
-HOOKS_DIR = ROOT / "plugin" / "hooks"
-COMMAND_GUARD = HOOKS_DIR / "scripts" / "command_guard.py"
-BASH_FIXTURES = ROOT / "tests" / "fixtures" / "bash-commands.json"
-FILESYSTEM_FIXTURES = ROOT / "tests" / "fixtures" / "filesystem-commands.json"
-GIT_FIXTURES = ROOT / "tests" / "fixtures" / "git-commands.json"
-INFRASTRUCTURE_FIXTURES = ROOT / "tests" / "fixtures" / "infrastructure-commands.json"
+from helpers import (  # noqa: E402
+    ROOT,
+    SCRIPTS_DIR,
+    env_without_path,
+    init_git_repo,
+    isolated_env,
+    load_fixtures,
+    load_script,
+    run_script,
+    write_policy,
+)
+from helpers import bash_payload as _bash_payload  # noqa: E402
+from helpers import write_payload as _write_payload  # noqa: E402
 
-if str(HOOKS_DIR) not in sys.path:
-    sys.path.insert(0, str(HOOKS_DIR))
-
-from guard.context import from_hook_payload
-from guard.decisions import Decision, DecisionKind, combine
-from guard.filesystem import evaluate as evaluate_filesystem
-from guard.git import load_git_context
-from guard.infrastructure import evaluate as evaluate_infrastructure
-from guard.infrastructure import is_production_value
-from guard.shell import parse
-
-spec = importlib.util.spec_from_file_location("command_guard", COMMAND_GUARD)
-command_guard = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules["command_guard"] = command_guard
-spec.loader.exec_module(command_guard)
+from guard.context import from_hook_payload  # noqa: E402
+from guard.decisions import Decision, DecisionKind, combine  # noqa: E402
+from guard.filesystem import evaluate as evaluate_filesystem  # noqa: E402
+from guard.git import load_git_context  # noqa: E402
+from guard.infrastructure import evaluate as evaluate_infrastructure  # noqa: E402
+from guard.infrastructure import is_production_value  # noqa: E402
+from guard.shell import parse  # noqa: E402
 
 
+COMMAND_GUARD = SCRIPTS_DIR / "command_guard.py"
+command_guard = load_script(COMMAND_GUARD)
+
+# These tests default to running against the repository itself.
 def bash_payload(command, cwd=ROOT):
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {
-            "command": command,
-        },
-        "cwd": str(cwd),
-    }
+    return _bash_payload(command, cwd)
 
 
 def write_payload(file_path, content, cwd=ROOT):
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Write",
-        "tool_input": {
-            "file_path": str(file_path),
-            "content": content,
-        },
-        "cwd": str(cwd),
-    }
+    return _write_payload(file_path, content, cwd)
 
 
 def post_write_payload(file_path, content, cwd=ROOT):
-    return {
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Write",
-        "tool_input": {
-            "file_path": str(file_path),
-            "content": content,
-        },
-        "cwd": str(cwd),
-    }
-
-
-def isolated_env():
-    """Guard runs must not inherit the developer's environment classification."""
-    env = os.environ.copy()
-    for name in ("ENV", "ENVIRONMENT", "STAGE", "NODE_ENV"):
-        env.pop(name, None)
-    return env
-
-
-def env_without_path():
-    env = isolated_env()
-    env["PATH"] = ""
-    return env
+    return _write_payload(file_path, content, cwd, event="PostToolUse")
 
 
 @contextmanager
@@ -91,8 +55,6 @@ def strict_policy_workspace(policy=None):
         project = Path(tmpdir) / "project"
         project.mkdir()
         (project / ".git").mkdir()
-        policy_dir = project / ".claude"
-        policy_dir.mkdir()
         policy_data = {
             "version": 1,
             "managedBy": "claude-bootstrap",
@@ -107,7 +69,7 @@ def strict_policy_workspace(policy=None):
         }
         if policy:
             policy_data.update(policy)
-        (policy_dir / "security-policy.json").write_text(json.dumps(policy_data), encoding="utf-8")
+        write_policy(project, policy_data)
         yield project
 
 
@@ -117,18 +79,11 @@ def prepared_git_workspace(fixture):
         cwd = Path(tmpdir)
 
         if fixture.get("repo", True):
-            subprocess.run(["git", "init"], cwd=cwd, text=True, capture_output=True, check=True)
-            branch = fixture.get("branch", "main")
-            subprocess.run(["git", "checkout", "-b", branch], cwd=cwd, text=True, capture_output=True, check=True)
+            init_git_repo(cwd, branch=fixture.get("branch", "main"))
 
             protected_branches = fixture.get("protectedBranches")
             if protected_branches is not None:
-                policy_dir = cwd / ".claude"
-                policy_dir.mkdir()
-                (policy_dir / "security-policy.json").write_text(
-                    json.dumps({"version": 1, "protectedBranches": protected_branches}),
-                    encoding="utf-8",
-                )
+                write_policy(cwd, {"version": 1, "protectedBranches": protected_branches})
 
             if fixture.get("dirty", False):
                 (cwd / "dirty.txt").write_text("dirty\n", encoding="utf-8")
@@ -159,25 +114,14 @@ def prepared_infrastructure_workspace(fixture):
 
         policy = fixture.get("policy")
         if policy is not None:
-            policy_dir = project / ".claude"
-            policy_dir.mkdir()
-            policy_data = {"version": 1}
-            policy_data.update(policy)
-            (policy_dir / "security-policy.json").write_text(json.dumps(policy_data), encoding="utf-8")
+            write_policy(project, {"version": 1, **policy})
 
         yield project
 
 
 class CommandGuardTests(unittest.TestCase):
     def run_guard(self, payload, env=None):
-        return subprocess.run(
-            [sys.executable, str(COMMAND_GUARD)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            check=False,
-            env=isolated_env() if env is None else env,
-        )
+        return run_script(COMMAND_GUARD, payload, env=env)
 
     def test_decision_priority(self):
         decision = combine(
@@ -347,7 +291,7 @@ class CommandGuardTests(unittest.TestCase):
         stderr.write.assert_called()
 
     def test_parser_fixtures(self):
-        fixtures = json.loads(BASH_FIXTURES.read_text(encoding="utf-8"))
+        fixtures = load_fixtures("bash-commands.json")
 
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
@@ -369,7 +313,7 @@ class CommandGuardTests(unittest.TestCase):
                     self.assertEqual(parsed.separators, fixture["separators"])
 
     def test_git_decision_fixtures(self):
-        fixtures = json.loads(GIT_FIXTURES.read_text(encoding="utf-8"))
+        fixtures = load_fixtures("git-commands.json")
 
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
@@ -407,7 +351,7 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(set(seen), allowed)
 
     def test_filesystem_decision_fixtures(self):
-        fixtures = json.loads(FILESYSTEM_FIXTURES.read_text(encoding="utf-8"))
+        fixtures = load_fixtures("filesystem-commands.json")
 
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
@@ -434,7 +378,7 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(decisions[0].rule_id, "FS-RM-RF")
 
     def test_infrastructure_decision_fixtures(self):
-        fixtures = json.loads(INFRASTRUCTURE_FIXTURES.read_text(encoding="utf-8"))
+        fixtures = load_fixtures("infrastructure-commands.json")
 
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
@@ -527,13 +471,7 @@ class CommandGuardTests(unittest.TestCase):
         self.assertIn("[DB-DESTRUCTIVE]", hook_output["permissionDecisionReason"])
 
     def test_malformed_json_fails_open(self):
-        completed = subprocess.run(
-            [sys.executable, str(COMMAND_GUARD)],
-            input="{invalid",
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        completed = run_script(COMMAND_GUARD, "{invalid")
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout, "")

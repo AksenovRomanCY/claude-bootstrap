@@ -1,43 +1,25 @@
-import importlib.util
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
-POST_WRITE_WARNINGS = ROOT / "plugin" / "hooks" / "scripts" / "post_write_warnings.py"
+from helpers import SCRIPTS_DIR, hook_payload, load_script, run_script  # noqa: E402
 
-spec = importlib.util.spec_from_file_location("post_write_warnings", POST_WRITE_WARNINGS)
-post_write_warnings = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules["post_write_warnings"] = post_write_warnings
-spec.loader.exec_module(post_write_warnings)
+
+POST_WRITE_WARNINGS = SCRIPTS_DIR / "post_write_warnings.py"
+post_write_warnings = load_script(POST_WRITE_WARNINGS)
 
 
 def payload(file_path, content, tool_name="Write"):
-    tool_input = {"file_path": file_path}
-    if tool_name == "Write":
-        tool_input["content"] = content
-    else:
-        tool_input["new_string"] = content
-    return {
-        "hook_event_name": "PostToolUse",
-        "tool_name": tool_name,
-        "tool_input": tool_input,
-    }
+    key = "content" if tool_name == "Write" else "new_string"
+    return hook_payload("PostToolUse", tool_name, {"file_path": file_path, key: content})
 
 
 class PostWriteWarningsTests(unittest.TestCase):
-    def run_hook(self, hook_payload):
-        return subprocess.run(
-            [sys.executable, str(POST_WRITE_WARNINGS)],
-            input=json.dumps(hook_payload),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+    def run_hook(self, payload):
+        return run_script(POST_WRITE_WARNINGS, payload)
 
     def hook_output(self, completed):
         self.assertEqual(completed.returncode, 0)
@@ -133,13 +115,7 @@ class PostWriteWarningsTests(unittest.TestCase):
         self.assertNotIn("permissionDecisionReason", hook_output)
 
     def test_malformed_json_fails_open_without_content(self):
-        completed = subprocess.run(
-            [sys.executable, str(POST_WRITE_WARNINGS)],
-            input="{invalid",
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        completed = run_script(POST_WRITE_WARNINGS, "{invalid")
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout, "")

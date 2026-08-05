@@ -1,5 +1,4 @@
 import contextlib
-import importlib.util
 import io
 import json
 import subprocess
@@ -9,15 +8,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
-APPLY_PROFILE = ROOT / "plugin" / "hardening" / "apply_profile.py"
+from helpers import HARDENING_DIR, isolated_env, load_script  # noqa: E402
 
-spec = importlib.util.spec_from_file_location("apply_profile", APPLY_PROFILE)
-apply_profile = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules["apply_profile"] = apply_profile
-spec.loader.exec_module(apply_profile)
+
+APPLY_PROFILE = HARDENING_DIR / "apply_profile.py"
+apply_profile = load_script(APPLY_PROFILE)
 
 
 class ApplyProfileTests(unittest.TestCase):
@@ -72,6 +69,7 @@ class ApplyProfileTests(unittest.TestCase):
             text=True,
             capture_output=True,
             check=False,
+            env=isolated_env(),
         )
 
     def test_creates_settings_when_missing(self):

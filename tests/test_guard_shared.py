@@ -5,11 +5,9 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
-HOOKS_DIR = ROOT / "plugin" / "hooks"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-if str(HOOKS_DIR) not in sys.path:
-    sys.path.insert(0, str(HOOKS_DIR))
+import helpers  # noqa: E402,F401 - puts the hook packages on sys.path
 
 from guard.paths import (  # noqa: E402
     find_project_root,
