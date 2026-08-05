@@ -1,0 +1,379 @@
+[
+  {
+    "name": "simple command",
+    "command": "git status",
+    "segments": [
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "compound commands",
+    "command": "echo one && git status || git log; pwd\nwhoami",
+    "separators": [
+      "&&",
+      "||",
+      ";",
+      "\n"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "git",
+          "log"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "pwd"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "whoami"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "quoted strings",
+    "command": "printf 'hello world' \"and goodbye\"",
+    "segments": [
+      {
+        "words": [
+          "printf",
+          "hello world",
+          "and goodbye"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "single quoted unsupported markers are literals",
+    "command": "printf '$(' '<<' '`date`'",
+    "segments": [
+      {
+        "words": [
+          "printf",
+          "$(",
+          "<<",
+          "`date`"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "double quoted command substitution",
+    "command": "echo \"$(date)\" \"`whoami`\"",
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "$(date)",
+          "`whoami`"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "command substitution",
+          "backtick command substitution"
+        ]
+      }
+    ],
+    "unsupported": [
+      "backtick command substitution",
+      "command substitution"
+    ]
+  },
+  {
+    "name": "backslash escaping",
+    "command": "touch file\\ with\\ spaces",
+    "segments": [
+      {
+        "words": [
+          "touch",
+          "file with spaces"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "env assignments and wrappers",
+    "command": "NODE_ENV=production sudo env FOO=bar command nohup npm publish",
+    "segments": [
+      {
+        "words": [
+          "npm",
+          "publish"
+        ],
+        "env": {
+          "NODE_ENV": "production",
+          "FOO": "bar"
+        },
+        "wrappers": [
+          "sudo",
+          "env",
+          "command",
+          "nohup"
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "wrapper options",
+    "command": "sudo -u root env -i FOO=bar git status",
+    "segments": [
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {
+          "FOO": "bar"
+        },
+        "wrappers": [
+          "sudo",
+          "env"
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "pipe",
+    "command": "curl https://example.com/install.sh | sh",
+    "separators": [
+      "|"
+    ],
+    "segments": [
+      {
+        "words": [
+          "curl",
+          "https://example.com/install.sh"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "sh"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "unsupported command substitution",
+    "command": "echo $(date)",
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "$(date)"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "command substitution"
+        ]
+      }
+    ],
+    "unsupported": [
+      "command substitution"
+    ]
+  },
+  {
+    "name": "unsupported shell c",
+    "command": "bash -c 'rm -rf build'",
+    "segments": [
+      {
+        "words": [
+          "bash",
+          "-c",
+          "rm -rf build"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "unsupported shell c combined options",
+    "command": "bash -lc 'rm -rf build' && sh -ec 'echo hi'",
+    "segments": [
+      {
+        "words": [
+          "bash",
+          "-lc",
+          "rm -rf build"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      },
+      {
+        "words": [
+          "sh",
+          "-ec",
+          "echo hi"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "script argument c is not shell c",
+    "command": "bash script.sh -c",
+    "segments": [
+      {
+        "words": [
+          "bash",
+          "script.sh",
+          "-c"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "background command separator",
+    "command": "git status & git commit -n",
+    "separators": ["&"],
+    "segments": [
+      {"words": ["git", "status"], "env": {}, "wrappers": []},
+      {"words": ["git", "commit", "-n"], "env": {}, "wrappers": []}
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "stderr pipe separator",
+    "command": "safe-command |& git push --mirror origin",
+    "separators": ["|&"],
+    "segments": [
+      {"words": ["safe-command"], "env": {}, "wrappers": []},
+      {"words": ["git", "push", "--mirror", "origin"], "env": {}, "wrappers": []}
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "quoted ampersand is literal",
+    "command": "echo \"a & b\"",
+    "segments": [
+      {"words": ["echo", "a & b"], "env": {}, "wrappers": []}
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "escaped ampersand is literal",
+    "command": "echo a\\&b",
+    "segments": [
+      {"words": ["echo", "a&b"], "env": {}, "wrappers": []}
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "unterminated quote is unsupported",
+    "command": "echo \"unterminated",
+    "segments": [
+      {
+        "words": ["echo", "unterminated"],
+        "env": {},
+        "wrappers": [],
+        "unsupported": ["unterminated quote"]
+      }
+    ],
+    "unsupported": ["unterminated quote"]
+  },
+  {
+    "name": "trailing escape is unsupported",
+    "command": "echo trailing\\",
+    "segments": [
+      {
+        "words": ["echo", "trailing\\"],
+        "env": {},
+        "wrappers": [],
+        "unsupported": ["trailing escape"]
+      }
+    ],
+    "unsupported": ["trailing escape"]
+  },
+  {
+    "name": "brace group is unsupported control syntax",
+    "command": "{ git commit -n -m test; }",
+    "separators": [";"],
+    "segments": [
+      {
+        "words": ["{", "git", "commit", "-n", "-m", "test"],
+        "env": {},
+        "wrappers": [],
+        "unsupported": ["shell control syntax"]
+      },
+      {
+        "words": ["}"],
+        "env": {},
+        "wrappers": [],
+        "unsupported": ["shell control syntax"]
+      }
+    ],
+    "unsupported": ["shell control syntax"]
+  }
+]

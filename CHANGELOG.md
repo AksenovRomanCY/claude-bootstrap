@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+- Run one unconditional Bash command guard so absolute executable paths cannot bypass hook dispatch
+- Parse background and stderr-pipe separators fail-closed, and block `git commit -n` and `git push --mirror` bypasses
+- Scan reconstructed Edit results for secrets and reconcile same-profile hardening upgrades without stale managed settings
+
+### Added
+- Hardening release documentation for `/bootstrap`, `/harden --baseline`, `/harden --strict`, `/harden --baseline --sandbox`, `/harden --check`, `/harden --remove`, and `/doctor`
+- Destructive operations guidance rule and project hardening profiles for baseline, strict, and explicit sandbox overlay workflows
+- Unified `command_guard` hook documentation for Bash, Write/Edit secret checks, large-file checks, and post-write warnings
+- Installer migration, managed hardening state, rollback commands, `/doctor` hardening diagnostics, and CI matrix coverage for owned guard/profile logic
+- External guard integration documented as optional follow-up work, not required for the hardening release
+
+### Changed
+- Baseline hardening now **prompts** instead of denying on credential file reads (`.env`, `.env.local`, `.env.production`, `~/.ssh/**`, `~/.aws/credentials`, `~/.kube/config`) — an outright deny blocked legitimate work such as checking which variables a project declares. `--strict` is unchanged and still denies all of them
+
+### Removed
+- **Breaking:** all four agents (`code-reviewer`, `security-reviewer`, `planner`, `refactor`) — superseded by built-in `/code-review`, `/review`, `/security-review`, `/simplify`, and the built-in `Plan` agent. `install.sh` no longer has `--skip-agents`
+- **Breaking:** skills `explain` and `fix-build` — both duplicated default Claude Code behavior
+
+### Changed
+- **Breaking:** skill `init` renamed to `bootstrap-init` — the old name collided with Claude Code's built-in `/init`, making which one ran ambiguous. Behavior is unchanged, including seeding `CLAUDE.md` from a matching stack template in `~/.claude/bootstrap-templates/`
+- `install.sh` and `uninstall.sh` prune retired components left over from a previous install
+
+### Changed
+- Documented hardening responsibility boundaries: rules guide behavior, permissions provide native static controls, hooks add contextual checks, Claude Code owns command matching and sandbox runtime, and external guard integration remains optional future work
+- Documented hardening limitations, including editable project settings, native Windows sandbox limits, non-goals around full Bash AST parsing, and the need for CI secret scanning
+
 ## [1.3.0] — 2026-03-31
 
 ### Added

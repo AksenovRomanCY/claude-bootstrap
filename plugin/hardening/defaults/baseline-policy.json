@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "managedBy": "claude-bootstrap",
+  "profile": "baseline",
+  "protectedBranches": [
+    "main",
+    "master"
+  ],
+  "production": {
+    "markers": [
+      "prod",
+      "production"
+    ],
+    "kubeContexts": [],
+    "terraformWorkspaces": [],
+    "awsAccountIds": []
+  },
+  "paths": {
+    "safeRecursiveDelete": [
+      ".cache",
+      "dist",
+      "build",
+      "node_modules",
+      "tmp"
+    ],
+    "generated": [
+      "**/generated/**",
+      "**/*.generated.*",
+      "**/vendor/**"
+    ]
+  },
+  "largeFiles": {
+    "warningLines": 800,
+    "askOnCreateLines": 1200,
+    "askOnGrowthLines": 100
+  }
+}

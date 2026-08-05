@@ -1,0 +1,193 @@
+[
+  {
+    "name": "rm rf root denies",
+    "command": "rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "absolute rm path root denies",
+    "command": "/bin/rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf preserve root still denies root target",
+    "command": "rm -rf --preserve-root /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf home tilde denies",
+    "command": "rm -rf ~",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf home variable denies",
+    "command": "rm -rf $HOME",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf braced home variable denies",
+    "command": "rm -rf ${HOME}",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf project root relative denies",
+    "command": "rm -rf .",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf project root absolute denies",
+    "command": "rm -rf {{PROJECT}}",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf parent directory denies",
+    "command": "rm -rf ..",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf git directory denies",
+    "command": "rm -rf .git",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf regular relative directory asks",
+    "command": "rm -rf dist",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf build directory still asks",
+    "command": "rm -rf build",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf node modules still asks",
+    "command": "rm -rf node_modules",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf absolute temp directory asks",
+    "command": "rm -rf /tmp/claude-bootstrap-test",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf path with spaces asks",
+    "command": "rm -rf 'build output'",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf normalized child path asks",
+    "command": "rm -rf dist/../build",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf unresolved variable asks",
+    "command": "rm -rf $TARGET_DIR",
+    "decision": "ask",
+    "rule": "FS-RM-RF-UNCERTAIN"
+  },
+  {
+    "name": "rm rf glob asks",
+    "command": "rm -rf build/*",
+    "decision": "ask",
+    "rule": "FS-RM-RF-UNCERTAIN"
+  },
+  {
+    "name": "rm rf command substitution asks",
+    "command": "rm -rf $(pwd)",
+    "decision": "ask",
+    "rule": "FS-RM-RF-UNCERTAIN"
+  },
+  {
+    "name": "rm rf symlink-like path asks",
+    "command": "rm -rf linked/../build",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "mkfs denies",
+    "command": "mkfs.ext4 /dev/sda1",
+    "decision": "deny",
+    "rule": "FS-DISK-TOOL"
+  },
+  {
+    "name": "absolute mkfs path denies",
+    "command": "/sbin/mkfs.ext4 /dev/sda1",
+    "decision": "deny",
+    "rule": "FS-DISK-TOOL"
+  },
+  {
+    "name": "wipefs denies",
+    "command": "wipefs -a /dev/sda",
+    "decision": "deny",
+    "rule": "FS-DISK-TOOL"
+  },
+  {
+    "name": "fdisk denies",
+    "command": "fdisk /dev/sda",
+    "decision": "deny",
+    "rule": "FS-DISK-TOOL"
+  },
+  {
+    "name": "parted denies",
+    "command": "parted /dev/sda print",
+    "decision": "deny",
+    "rule": "FS-DISK-TOOL"
+  },
+  {
+    "name": "dd device output denies",
+    "command": "dd if=image.iso of=/dev/sda bs=1M",
+    "decision": "deny",
+    "rule": "FS-DD-DEVICE"
+  },
+  {
+    "name": "recursive chmod asks",
+    "command": "chmod -R 777 dist",
+    "decision": "ask",
+    "rule": "FS-CHMOD-RECURSIVE"
+  },
+  {
+    "name": "absolute chmod path asks",
+    "command": "/usr/bin/chmod -R 777 dist",
+    "decision": "ask",
+    "rule": "FS-CHMOD-RECURSIVE"
+  },
+  {
+    "name": "recursive chown asks",
+    "command": "chown -Rh user:group dist",
+    "decision": "ask",
+    "rule": "FS-CHOWN-RECURSIVE"
+  },
+  {
+    "name": "sudo asks",
+    "command": "sudo systemctl restart nginx",
+    "decision": "ask",
+    "rule": "FS-SUDO"
+  },
+  {
+    "name": "sudo critical rm still denies",
+    "command": "sudo rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "non recursive rm is no decision",
+    "command": "rm dist/file.txt",
+    "decision": "none"
+  }
+]
