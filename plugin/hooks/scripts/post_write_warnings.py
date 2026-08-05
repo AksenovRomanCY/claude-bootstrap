@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import re
 import sys
 from dataclasses import dataclass
@@ -18,6 +17,7 @@ if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 from guard.decisions import dedupe_by_rule_id  # noqa: E402
+from guard.hook_io import run_hook  # noqa: E402
 from guard.secrets import detect_secrets  # noqa: E402
 
 
@@ -194,23 +194,7 @@ def warning_output(file_path: str, findings: list[WarningFinding]) -> dict[str, 
 
 
 def main() -> int:
-    try:
-        raw_input = sys.stdin.read()
-        if not raw_input.strip():
-            return 0
-
-        payload = json.loads(raw_input)
-        if not isinstance(payload, dict):
-            print("post_write_warnings warning: hook payload must be a JSON object", file=sys.stderr)
-            return 0
-
-        output = run(payload)
-        if output is not None:
-            print(json.dumps(output, separators=(",", ":")))
-        return 0
-    except Exception as exc:  # noqa: BLE001 - hook must fail open without exposing content.
-        print(f"post_write_warnings warning: internal error: {exc}", file=sys.stderr)
-        return 0
+    return run_hook(run, name="post_write_warnings")
 
 
 if __name__ == "__main__":

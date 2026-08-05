@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,7 @@ if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 from guard.edit_content import reconstruct_edit  # noqa: E402
+from guard.hook_io import run_hook  # noqa: E402
 from guard.paths import (  # noqa: E402
     find_project_root,
     path_matches_patterns,
@@ -215,23 +215,7 @@ def is_excluded(file_path: Path, project_root: Path, policy: LargeFilePolicy) ->
 
 
 def main() -> int:
-    try:
-        raw_input = sys.stdin.read()
-        if not raw_input.strip():
-            return 0
-
-        payload = json.loads(raw_input)
-        if not isinstance(payload, dict):
-            print("large_file_policy warning: hook payload must be a JSON object", file=sys.stderr)
-            return 0
-
-        output = run(payload)
-        if output is not None:
-            print(json.dumps(output, separators=(",", ":")))
-        return 0
-    except Exception as exc:  # noqa: BLE001 - hooks must fail open.
-        print(json.dumps(output_warning(f"Internal error while evaluating file size: {exc}"), separators=(",", ":")))
-        return 0
+    return run_hook(run, name="large_file_policy")
 
 
 if __name__ == "__main__":
