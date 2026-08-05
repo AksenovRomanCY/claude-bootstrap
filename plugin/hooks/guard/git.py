@@ -19,10 +19,24 @@ GIT_TIMEOUT_SECONDS = 2
 GIT_GLOBAL_OPTIONS_WITH_VALUES = {
     "-C",
     "-c",
+    "--config-env",
     "--git-dir",
     "--work-tree",
     "--namespace",
     "--exec-path",
+}
+GIT_CONFIG_VALUE_OPTIONS = {"-c", "--config-env"}
+# Config keys that disable repository hooks outright.
+HOOK_BYPASS_CONFIG_KEYS = {"core.hookspath"}
+# Config keys whose value git executes as a command.
+EXECUTING_CONFIG_KEYS = {
+    "core.fsmonitor",
+    "core.pager",
+    "core.editor",
+    "core.sshcommand",
+    "diff.external",
+    "credential.helper",
+    "sequence.editor",
 }
 COMMIT_OPTIONS_WITH_VALUES = {
     "-m",
@@ -60,6 +74,7 @@ class GitInvocation:
     segment: CommandSegment
     subcommand: str
     args: list[str]
+    config_overrides: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -88,20 +103,30 @@ def parse_git_invocation(segment: CommandSegment) -> GitInvocation | None:
         return None
 
     index = 1
+    config_overrides: list[str] = []
     while index < len(words):
         token = words[index]
         if token == "--":
             return None
         if token in GIT_GLOBAL_OPTIONS_WITH_VALUES:
+            if token in GIT_CONFIG_VALUE_OPTIONS and index + 1 < len(words):
+                config_overrides.append(words[index + 1])
             index += 2
             continue
         if any(token.startswith(f"{option}=") for option in GIT_GLOBAL_OPTIONS_WITH_VALUES if option.startswith("--")):
+            if token.startswith("--config-env="):
+                config_overrides.append(token.split("=", 1)[1])
             index += 1
             continue
         if token.startswith("-"):
             index += 1
             continue
-        return GitInvocation(segment=segment, subcommand=token, args=words[index + 1 :])
+        return GitInvocation(
+            segment=segment,
+            subcommand=token,
+            args=words[index + 1 :],
+            config_overrides=tuple(config_overrides),
+        )
 
     return None
 
@@ -159,6 +184,10 @@ def load_protected_branches(project_root: Path) -> list[str]:
 
 def evaluate_invocation(invocation: GitInvocation, context: GitContext) -> list[Decision]:
     subcommand = invocation.subcommand
+    config_decisions = evaluate_config_overrides(invocation.config_overrides)
+    if config_decisions:
+        return config_decisions
+
     if has_bypass_environment(invocation.segment) and subcommand in {"commit", "push"}:
         return [
             Decision.deny(
@@ -185,6 +214,28 @@ def evaluate_invocation(invocation: GitInvocation, context: GitContext) -> list[
         return evaluate_checkout(invocation)
 
     return []
+
+
+def evaluate_config_overrides(config_overrides: tuple[str, ...]) -> list[Decision]:
+    """`git -c core.hooksPath=/dev/null commit` is the most direct hook bypass there is."""
+    decisions: list[Decision] = []
+    for override in config_overrides:
+        key = override.split("=", 1)[0].strip().lower()
+        if key in HOOK_BYPASS_CONFIG_KEYS:
+            decisions.append(
+                Decision.deny(
+                    "GIT-HOOK-BYPASS",
+                    f"Do not bypass repository hooks with git -c {key}.",
+                )
+            )
+        elif key in EXECUTING_CONFIG_KEYS:
+            decisions.append(
+                Decision.ask(
+                    "GIT-CONFIG-OVERRIDE",
+                    f"git -c {key} makes git run the configured value as a command. Confirm it is intended.",
+                )
+            )
+    return decisions
 
 
 def has_bypass_environment(segment: CommandSegment) -> bool:

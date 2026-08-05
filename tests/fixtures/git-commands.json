@@ -215,5 +215,29 @@
     "command": "git push \\\n  --force origin main",
     "decision": "deny",
     "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "config hooks path bypass denies",
+    "command": "git -c core.hooksPath=/dev/null commit -m x",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "config env hooks path bypass denies",
+    "command": "git --config-env=core.hooksPath=EVIL commit -m x",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "executing config override asks",
+    "command": "git -c core.pager=cat log",
+    "decision": "ask",
+    "rule": "GIT-CONFIG-OVERRIDE"
+  },
+  {
+    "name": "harmless config override passes",
+    "command": "git -c user.name=Bot commit -m x",
+    "decision": "none",
+    "rule": ""
   }
 ]
