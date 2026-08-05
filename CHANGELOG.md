@@ -13,6 +13,14 @@
 - Installer migration, managed hardening state, rollback commands, `/doctor` hardening diagnostics, and CI matrix coverage for owned guard/profile logic
 - External guard integration documented as optional follow-up work, not required for the hardening release
 
+### Removed
+- **Breaking:** all four agents (`code-reviewer`, `security-reviewer`, `planner`, `refactor`) — superseded by built-in `/code-review`, `/review`, `/security-review`, `/simplify`, and the built-in `Plan` agent. `install.sh` no longer has `--skip-agents`
+- **Breaking:** skills `explain` and `fix-build` — both duplicated default Claude Code behavior
+
+### Changed
+- **Breaking:** skill `init` renamed to `bootstrap-init` — the old name collided with Claude Code's built-in `/init`, making which one ran ambiguous. Behavior is unchanged, including seeding `CLAUDE.md` from a matching stack template in `~/.claude/bootstrap-templates/`
+- `install.sh` and `uninstall.sh` prune retired components left over from a previous install
+
 ### Changed
 - Documented hardening responsibility boundaries: rules guide behavior, permissions provide native static controls, hooks add contextual checks, Claude Code owns command matching and sandbox runtime, and external guard integration remains optional future work
 - Documented hardening limitations, including editable project settings, native Windows sandbox limits, non-goals around full Bash AST parsing, and the need for CI secret scanning

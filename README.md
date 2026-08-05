@@ -1,6 +1,6 @@
 # claude-bootstrap
 
-> Reusable preset for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — rules, skills, agents, and hooks for any project.
+> Reusable preset for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — rules, skills, and hooks for any project.
 
 ## Installation
 
@@ -11,7 +11,7 @@
 /plugin install claude-bootstrap@claude-bootstrap
 ```
 
-Done. Skills, agents, and hooks are available immediately.
+Done. Skills and hooks are available immediately.
 
 ### Option B — Manual
 
@@ -28,7 +28,6 @@ cd ~/claude-bootstrap && ./install.sh
 ./install.sh --force          # Skip confirmation
 ./install.sh --skip-hooks     # Don't install hooks
 ./install.sh --skip-skills    # Don't install skills
-./install.sh --skip-agents    # Don't install agents
 ./install.sh --skip-rules     # Don't install rules library
 ./install.sh --skip-hardening # Don't install hardening assets
 ./uninstall.sh                # Clean removal
@@ -50,10 +49,10 @@ cd ~/your-project
 /harden --check             # Checks managed hardening drift without writing
 /harden --remove            # Removes claude-bootstrap managed hardening
 /doctor                     # Reports install, project, policy, and sandbox status
-/init                       # Generates CLAUDE.md from project analysis
+/bootstrap-init             # Generates CLAUDE.md, seeded from a stack template
 ```
 
-> **Plugin users:** commands are namespaced — `/claude-bootstrap:bootstrap`, `/claude-bootstrap:init`, etc.
+> **Plugin users:** commands are namespaced — `/claude-bootstrap:bootstrap`, `/claude-bootstrap:bootstrap-init`, etc.
 
 ---
 
@@ -63,14 +62,14 @@ cd ~/your-project
 Plugin or install.sh               In any project
         │                                │
         ▼                                ▼
-  skills, agents, hooks          .claude/rules/ (in git)
+  skills and hooks               .claude/rules/ (in git)
   (global, all projects)           ├── common/
                                    ├── typescript/
   rules & templates                ├── python/
   (library for /bootstrap)         └── golang/
 ```
 
-**Global** — skills, agents, hooks. Personal workflow tools, available everywhere.
+**Global** — skills and hooks. Personal workflow tools, available everywhere.
 **Per-project** — coding rules. Copied by `/bootstrap`, committed to git, shared with team.
 
 ### Hardening Responsibility Model
@@ -91,12 +90,10 @@ Plugin or install.sh               In any project
 | --- | --- | --- |
 | `/bootstrap` | Set up `.claude/rules/` — detect stack, copy rules. `--update` to refresh | |
 | `/harden` | Apply project hardening. `--baseline` by default, `--strict` for stricter prompts, `--sandbox` to opt in to Claude Code's built-in Bash sandbox, `--dry-run` to preview, `--check` to detect drift, `--remove` and `--remove-sandbox` to remove managed settings | |
-| `/init` | Generate `CLAUDE.md` from project analysis. `--check` to validate existing | |
+| `/bootstrap-init` | Generate `CLAUDE.md`, seeded from a matching stack template. `--check` to validate existing | |
 | `/commit` | Stage changes, generate conventional commit message, commit | |
 | `/pr` | Create GitHub PR or GitLab MR with auto-generated description | |
 | `/verify` | Run lint + typecheck + tests, report results | \* |
-| `/explain <file>` | Explain file purpose, flow, and dependencies | \* |
-| `/fix-build` | Diagnose and fix build/lint/test errors | |
 | `/test <feature>` | TDD workflow: RED &rarr; GREEN &rarr; IMPROVE | |
 | `/changelog` | Generate changelog from git history | |
 | `/deps-check` | Audit outdated and vulnerable dependencies | \* |
@@ -104,16 +101,19 @@ Plugin or install.sh               In any project
 
 \* **Auto** — Claude can invoke these automatically when relevant (read-only, no side effects).
 
-## Agents
+## Relying on built-in Claude Code
 
-Claude automatically delegates to these when the task matches.
+claude-bootstrap deliberately ships **no agents** and no skills that duplicate what Claude Code already provides. Use the built-ins:
 
-| Agent | What it does |
+| Need | Built-in |
 | --- | --- |
-| `/plan` | Implementation plan with phases, risks, and test strategy |
-| `/review` | Code review: bugs, security, style, performance |
-| `/security` | Security audit: OWASP Top 10, secrets, injections |
-| `/refactor` | Refactoring plan that preserves behavior |
+| Review your working diff | `/code-review` (`/code-review ultra` for a multi-agent pass) |
+| Review a GitHub PR | `/review` |
+| Security audit of pending changes | `/security-review` |
+| Simplify / de-duplicate changed code | `/simplify` |
+| Implementation plan | the `Plan` agent |
+| Locate code across the repo | the `Explore` agent |
+| Explain a file, fix a failing build | just ask — no skill needed |
 
 ## Hooks
 
@@ -216,7 +216,7 @@ Future decision order must keep internal guard decisions first: internal high-co
 
 ## CLAUDE.md Templates
 
-`/init` detects the project stack and uses a matching template as the starting structure, replacing placeholders with real project data.
+`/bootstrap-init` detects the project stack and uses a matching template as the starting structure, replacing placeholders with real project data.
 
 | Template | Stack |
 | --- | --- |
