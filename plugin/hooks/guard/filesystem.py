@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .context import HookContext
 from .decisions import Decision
+from .paths import find_project_root_literal, normalize_existing_path
 from .shell import CommandSegment, ShellParseResult
 
 
@@ -32,7 +33,7 @@ class FilesystemContext:
 def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
     fs_context = FilesystemContext(
         cwd=normalize_existing_path(context.cwd),
-        project_root=find_project_root(context.cwd),
+        project_root=find_project_root_literal(context.cwd),
         home=Path.home(),
     )
     decisions: list[Decision] = []
@@ -223,13 +224,3 @@ def is_critical_rm_target(path: Path, context: FilesystemContext) -> bool:
     return path in critical_paths
 
 
-def find_project_root(cwd: Path) -> Path:
-    current = normalize_existing_path(cwd)
-    for candidate in (current, *current.parents):
-        if (candidate / ".git").exists() or (candidate / ".claude").exists():
-            return candidate
-    return current
-
-
-def normalize_existing_path(path: Path) -> Path:
-    return Path(os.path.normpath(os.path.abspath(str(path))))

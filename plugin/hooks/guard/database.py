@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .context import HookContext
 from .decisions import Decision
-from .filesystem import find_project_root
+from .paths import find_project_root
+from .policy import load_policy, policy_section
 from .shell import CommandSegment, ShellParseResult
 
 
@@ -101,16 +100,7 @@ def normalized_command(segment: CommandSegment) -> str | None:
 
 
 def load_database_policy(project_root: Path) -> DatabasePolicy:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy: Any = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return DatabasePolicy()
-
-    database = raw_policy.get("database") if isinstance(raw_policy, dict) else None
-    if not isinstance(database, dict):
-        return DatabasePolicy()
-
+    database = policy_section(load_policy(project_root), "database")
     destructive_operations = database.get("destructiveOperations")
     if destructive_operations not in {"ask", "deny"}:
         return DatabasePolicy()

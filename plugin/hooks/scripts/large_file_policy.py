@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import fnmatch
 import json
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +16,14 @@ if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 from guard.edit_content import reconstruct_edit  # noqa: E402
+from guard.paths import (  # noqa: E402
+    find_project_root,
+    path_matches_patterns,
+    relative_to_project,
+    resolve_file_path,
+)
+from guard.policy import load_policy as load_security_policy  # noqa: E402
+from guard.policy import policy_section, string_list  # noqa: E402
 
 
 DEFAULT_WARNING_LINES = 800
@@ -128,55 +134,11 @@ def run(payload: dict[str, Any]) -> dict[str, object] | None:
     return decide(raw_file_path, state, policy)
 
 
-def find_project_root(cwd: Path) -> Path:
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(cwd),
-            text=True,
-            capture_output=True,
-            timeout=2,
-            check=False,
-        )
-        if completed.returncode == 0 and completed.stdout.strip():
-            return Path(completed.stdout.strip()).resolve()
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-
-    resolved = cwd.resolve()
-    for candidate in [resolved, *resolved.parents]:
-        if (candidate / ".git").exists():
-            return candidate
-    return resolved
-
-
-def resolve_file_path(raw_file_path: str, cwd: Path) -> Path:
-    path = Path(raw_file_path).expanduser()
-    if path.is_absolute():
-        return path.resolve()
-    return (cwd / path).resolve()
-
-
 def load_policy(project_root: Path) -> LargeFilePolicy:
     policy = LargeFilePolicy()
-    policy_file = project_root / ".claude" / "security-policy.json"
-
-    try:
-        raw_policy = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return policy
-
-    if not isinstance(raw_policy, dict):
-        return policy
-
-    large_files = raw_policy.get("largeFiles")
-    if not isinstance(large_files, dict):
-        large_files = {}
-
-    paths = raw_policy.get("paths")
-    generated_patterns: list[str] = []
-    if isinstance(paths, dict) and isinstance(paths.get("generated"), list):
-        generated_patterns = [item for item in paths["generated"] if isinstance(item, str) and item]
+    raw_policy = load_security_policy(project_root)
+    large_files = policy_section(raw_policy, "largeFiles")
+    generated_patterns = string_list(policy_section(raw_policy, "paths").get("generated"))
 
     return LargeFilePolicy(
         warning_lines=positive_int(large_files.get("warningLines"), policy.warning_lines),
@@ -245,26 +207,11 @@ def decide(raw_file_path: str, state: FileState, policy: LargeFilePolicy) -> dic
 
 def is_excluded(file_path: Path, project_root: Path, policy: LargeFilePolicy) -> bool:
     relative = relative_to_project(file_path, project_root)
-    candidates = {relative, f"./{relative}", file_path.name}
     normalized_parts = {part.lower() for part in Path(relative).parts}
     if normalized_parts.intersection({"generated", "vendor", "schema", "schemas", "migration", "migrations", "snapshot", "snapshots"}):
         return True
 
-    for pattern in policy.excluded_patterns:
-        normalized_pattern = pattern.replace("\\", "/")
-        for candidate in candidates:
-            if fnmatch.fnmatch(candidate, normalized_pattern):
-                return True
-            if normalized_pattern.startswith("**/") and fnmatch.fnmatch(candidate, normalized_pattern[3:]):
-                return True
-    return False
-
-
-def relative_to_project(file_path: Path, project_root: Path) -> str:
-    try:
-        return file_path.relative_to(project_root).as_posix()
-    except ValueError:
-        return file_path.as_posix()
+    return path_matches_patterns(file_path, project_root, policy.excluded_patterns)
 
 
 def main() -> int:

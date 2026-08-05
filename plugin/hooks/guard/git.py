@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .context import HookContext
 from .decisions import Decision
+from .policy import load_policy, string_list
 from .shell import CommandSegment, ShellParseResult
 
 
@@ -165,20 +164,7 @@ def git_output(cwd: Path, command: list[str]) -> str | None:
 
 
 def load_protected_branches(project_root: Path) -> list[str]:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy: Any = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return DEFAULT_PROTECTED_BRANCHES
-
-    if not isinstance(raw_policy, dict):
-        return DEFAULT_PROTECTED_BRANCHES
-
-    protected = raw_policy.get("protectedBranches")
-    if not isinstance(protected, list):
-        return DEFAULT_PROTECTED_BRANCHES
-
-    branches = [branch for branch in protected if isinstance(branch, str) and branch]
+    branches = string_list(load_policy(project_root).get("protectedBranches"))
     return branches or DEFAULT_PROTECTED_BRANCHES
 
 

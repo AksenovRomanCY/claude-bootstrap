@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .context import HookContext
 from .decisions import Decision
-from .filesystem import find_project_root
+from .paths import find_project_root
+from .policy import load_policy, policy_section, string_list
 from .shell import CommandSegment, ShellParseResult
 
 
@@ -418,41 +417,15 @@ def command_output(cwd: Path, command: list[str]) -> str | None:
 
 
 def load_production_policy(project_root: Path) -> ProductionPolicy:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy: Any = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ProductionPolicy(markers=DEFAULT_PRODUCTION_MARKERS, kube_contexts=[], terraform_workspaces=[])
-
-    if not isinstance(raw_policy, dict):
-        return ProductionPolicy(markers=DEFAULT_PRODUCTION_MARKERS, kube_contexts=[], terraform_workspaces=[])
-
-    production = raw_policy.get("production")
-    if isinstance(production, dict):
-        markers = string_list(production.get("markers")) or DEFAULT_PRODUCTION_MARKERS
-        kube_contexts = string_list(production.get("kubeContexts"))
-        terraform_workspaces = string_list(production.get("terraformWorkspaces"))
-    else:
-        markers = DEFAULT_PRODUCTION_MARKERS
-        kube_contexts = []
-        terraform_workspaces = []
-
-    command_guard = raw_policy.get("commandGuard") if isinstance(raw_policy, dict) else None
-    unknown_environment_high_risk = (
-        isinstance(command_guard, dict) and command_guard.get("unknownEnvironment") == "high-risk"
-    )
+    policy = load_policy(project_root)
+    production = policy_section(policy, "production")
+    command_guard = policy_section(policy, "commandGuard")
     return ProductionPolicy(
-        markers=markers,
-        kube_contexts=kube_contexts,
-        terraform_workspaces=terraform_workspaces,
-        unknown_environment_high_risk=unknown_environment_high_risk,
+        markers=string_list(production.get("markers")) or DEFAULT_PRODUCTION_MARKERS,
+        kube_contexts=string_list(production.get("kubeContexts")),
+        terraform_workspaces=string_list(production.get("terraformWorkspaces")),
+        unknown_environment_high_risk=command_guard.get("unknownEnvironment") == "high-risk",
     )
-
-
-def string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str) and item]
 
 
 def is_production_value(value: str, markers: list[str], exact_values: list[str]) -> bool:

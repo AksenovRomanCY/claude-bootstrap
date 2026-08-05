@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
-import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -13,6 +11,8 @@ from typing import Any
 
 from .decisions import Decision, DecisionKind
 from .edit_content import EditReconstructionError, reconstruct_edit
+from .paths import find_project_root, path_matches_patterns, relative_to_project, resolve_file_path
+from .policy import load_policy, policy_section, string_list
 
 
 GIT_TIMEOUT_SECONDS = 2
@@ -109,7 +109,7 @@ def evaluate(payload: dict[str, Any]) -> Decision:
         return Decision.none()
 
     project_root = find_project_root(secret_input.cwd)
-    if is_allowed_path(secret_input.file_path, project_root, load_allow_paths(project_root)):
+    if path_matches_patterns(secret_input.file_path, project_root, load_allow_paths(project_root)):
         return Decision.warning(
             "SECRET-ALLOWED-PATH",
             f"Detected {findings[0].secret_type} in {secret_input.display_path}, "
@@ -180,13 +180,6 @@ def edit_display_path(payload: dict[str, Any]) -> str:
         if isinstance(file_path, str) and file_path:
             return file_path
     return "the target file"
-
-
-def resolve_file_path(raw_file_path: str, cwd: Path) -> Path:
-    path = Path(raw_file_path).expanduser()
-    if path.is_absolute():
-        return path.resolve()
-    return (cwd / path).resolve()
 
 
 def detect_secrets(content: str) -> list[SecretFinding]:
@@ -285,44 +278,8 @@ def generic_assignment_value(match: re.Match[str]) -> tuple[str, bool]:
     return match.group("unquoted_value") or "", False
 
 
-def load_allow_paths(project_root: Path) -> tuple[str, ...]:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ()
-    if not isinstance(raw_policy, dict):
-        return ()
-    secrets_policy = raw_policy.get("secrets")
-    if not isinstance(secrets_policy, dict):
-        return ()
-    allow_paths = secrets_policy.get("allowPaths")
-    if not isinstance(allow_paths, list):
-        return ()
-    return tuple(item for item in allow_paths if isinstance(item, str) and item)
-
-
-def is_allowed_path(file_path: Path, project_root: Path, allow_paths: tuple[str, ...]) -> bool:
-    if not allow_paths:
-        return False
-    relative = relative_to_project(file_path, project_root)
-    candidates = {relative, f"./{relative}", file_path.name}
-    for pattern in allow_paths:
-        normalized_pattern = pattern.replace("\\", "/")
-        for candidate in candidates:
-            if fnmatch.fnmatch(candidate, normalized_pattern):
-                return True
-            if normalized_pattern.startswith("**/") and fnmatch.fnmatch(candidate, normalized_pattern[3:]):
-                return True
-    return False
-
-
-def find_project_root(cwd: Path) -> Path:
-    resolved = cwd.resolve()
-    for candidate in [resolved, *resolved.parents]:
-        if (candidate / ".git").exists():
-            return candidate
-    return resolved
+def load_allow_paths(project_root: Path) -> list[str]:
+    return string_list(policy_section(load_policy(project_root), "secrets").get("allowPaths"))
 
 
 def classify_file(file_path: Path, project_root: Path) -> FileClass:
@@ -332,13 +289,6 @@ def classify_file(file_path: Path, project_root: Path) -> FileClass:
     if git_path_matches(project_root, ["check-ignore", "-q", "--", relative_path]):
         return FileClass.IGNORED
     return FileClass.UNTRACKED_COMMITTABLE
-
-
-def relative_to_project(file_path: Path, project_root: Path) -> str:
-    try:
-        return file_path.relative_to(project_root).as_posix()
-    except ValueError:
-        return file_path.as_posix()
 
 
 def git_path_matches(project_root: Path, args: list[str]) -> bool:
