@@ -2,17 +2,17 @@
   "permissions": {
     "disableBypassPermissionsMode": "disable",
     "deny": [
+      "Bash(gh repo delete *)",
+      "Bash(git stash clear *)",
+      "Bash(npm unpublish *)"
+    ],
+    "ask": [
       "Read(./.env)",
       "Read(./.env.local)",
       "Read(./.env.production)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/credentials)",
       "Read(~/.kube/config)",
-      "Bash(gh repo delete *)",
-      "Bash(git stash clear *)",
-      "Bash(npm unpublish *)"
-    ],
-    "ask": [
       "Bash(npm publish *)",
       "Bash(pnpm publish *)",
       "Bash(yarn npm publish *)",

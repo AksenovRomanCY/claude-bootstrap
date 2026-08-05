@@ -13,6 +13,9 @@
 - Installer migration, managed hardening state, rollback commands, `/doctor` hardening diagnostics, and CI matrix coverage for owned guard/profile logic
 - External guard integration documented as optional follow-up work, not required for the hardening release
 
+### Changed
+- Baseline hardening now **prompts** instead of denying on credential file reads (`.env`, `.env.local`, `.env.production`, `~/.ssh/**`, `~/.aws/credentials`, `~/.kube/config`) — an outright deny blocked legitimate work such as checking which variables a project declares. `--strict` is unchanged and still denies all of them
+
 ### Removed
 - **Breaking:** all four agents (`code-reviewer`, `security-reviewer`, `planner`, `refactor`) — superseded by built-in `/code-review`, `/review`, `/security-review`, `/simplify`, and the built-in `Plan` agent. `install.sh` no longer has `--skip-agents`
 - **Breaking:** skills `explain` and `fix-build` — both duplicated default Claude Code behavior

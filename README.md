@@ -162,9 +162,11 @@ Rules guide Claude's behavior; they are not a technical security boundary.
 
 `/harden --remove` rolls back only settings and policy defaults recorded in `.claude/harden-state.json`. User permission rules, hooks, custom policy changes, and `.claude/rules/` are preserved; modified managed values are reported as conflicts unless the user explicitly asks for `--force`. `/harden --remove-sandbox` removes only the managed sandbox overlay and leaves baseline or strict hardening in place.
 
-`plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It defines targeted `permissions.deny` rules for sensitive files and clearly destructive commands, plus `permissions.ask` rules for publication, release, and infrastructure operations.
+`plugin/hardening/profiles/baseline.settings.json` is the static project settings template for baseline permissions. It reserves `permissions.deny` for unambiguously destructive commands, and uses `permissions.ask` for credential file reads (`.env*`, `~/.ssh/**`, `~/.aws/credentials`, `~/.kube/config`) as well as publication, release, and infrastructure operations.
 
-`plugin/hardening/profiles/strict.settings.json` builds on the same architecture with additional static prompts and deny rules. Unsupported or ambiguous shell syntax requires confirmation in every profile. `plugin/hardening/defaults/strict-policy.json` also treats unknown environment context as high risk for production-sensitive operations, lowers large-file thresholds, and denies high-confidence destructive database commands. External guard integrations are intentionally outside baseline and strict.
+Baseline prompts rather than denies on credential reads because legitimate work needs them — checking which variables a project declares, or reconciling `.env` against `.env.example`. The trade-off is real: a prompt approved by reflex puts secrets in the context window, and a denial cannot be clicked through. Projects that cannot accept that should use `--strict`, which keeps every credential read denied.
+
+`plugin/hardening/profiles/strict.settings.json` builds on the same architecture with additional static prompts and deny rules, and keeps all credential file reads in `permissions.deny` rather than downgrading them to a prompt. Unsupported or ambiguous shell syntax requires confirmation in every profile. `plugin/hardening/defaults/strict-policy.json` also treats unknown environment context as high risk for production-sensitive operations, lowers large-file thresholds, and denies high-confidence destructive database commands. External guard integrations are intentionally outside baseline and strict.
 
 `/harden --baseline --sandbox` and `/harden --strict --sandbox` apply `plugin/hardening/profiles/sandbox.settings.json` as an explicit overlay for Claude Code's built-in Bash sandbox. The overlay writes only `.claude/settings.json` sandbox configuration, sets `failIfUnavailable`, disables unsandboxed fallback, and denies common credential files and environment variables to sandboxed commands. Native Windows is not supported by Claude Code's sandbox; use WSL2, a container, macOS, or Linux. `/harden --remove-sandbox` removes only sandbox entries managed by claude-bootstrap.
 
@@ -173,6 +175,7 @@ Sandbox may break commands that need credentials or external resources, includin
 | Behavior | Baseline | Strict |
 | --- | --- | --- |
 | Bypass permissions | Disabled | Disabled |
+| Credential file reads (`.env`, `~/.ssh`, cloud creds) | Permission prompt | Denied |
 | Parser uncertainty | Warning context | Permission prompt |
 | Infrastructure operations | Prompt or deny when production is detected | More prompts; unknown environment is high risk |
 | Destructive database commands | No static profile decision | Deny high-confidence destructive CLI operations |

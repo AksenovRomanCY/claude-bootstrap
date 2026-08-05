@@ -116,8 +116,11 @@ do
   fi
 done
 
-assert_jq_true '.permissions.deny | index("Read(./.env)") != null' "baseline denies .env reads"
-assert_jq_true '.permissions.deny | index("Read(~/.ssh/**)") != null' "baseline denies ssh reads"
+assert_jq_true '.permissions.ask | index("Read(./.env)") != null' "baseline asks on .env reads"
+assert_jq_true '.permissions.ask | index("Read(~/.ssh/**)") != null' "baseline asks on ssh reads"
+assert_jq_true '.permissions.ask | index("Read(~/.aws/credentials)") != null' "baseline asks on aws credential reads"
+assert_jq_true '.permissions.ask | index("Read(~/.kube/config)") != null' "baseline asks on kube config reads"
+assert_jq_true '[.permissions.deny[]] | all(startswith("Read(") | not)' "baseline denies no credential reads outright"
 assert_jq_true '.permissions.deny | index("Bash(gh repo delete *)") != null' "baseline denies repo deletion"
 assert_jq_true '.permissions.ask | index("Bash(npm publish *)") != null' "baseline asks on npm publish"
 assert_jq_true '.permissions.ask | index("Bash(terraform apply *)") != null' "baseline asks on terraform apply"
@@ -132,6 +135,11 @@ assert_jq_true_path "$STRICT" '(.permissions.ask | length) == (.permissions.ask 
 assert_jq_true_path "$STRICT" '([.permissions.deny[], .permissions.ask[]] | length) == ([.permissions.deny[], .permissions.ask[]] | unique | length)' "strict deny and ask do not overlap"
 assert_jq_true_path "$STRICT" '[.permissions.deny[], .permissions.ask[]] | all(test("^(Read|Bash)\\(.+\\)$"))' "strict permission rules use allowed format"
 assert_jq_true_path "$STRICT" '.permissions.deny | index("Bash(terraform destroy *)") != null' "strict denies terraform destroy statically"
+assert_jq_true_path "$STRICT" '.permissions.deny | index("Read(./.env)") != null' "strict still denies .env reads"
+assert_jq_true_path "$STRICT" '.permissions.deny | index("Read(~/.ssh/**)") != null' "strict still denies ssh reads"
+assert_jq_true_path "$STRICT" '.permissions.deny | index("Read(~/.aws/credentials)") != null' "strict still denies aws credential reads"
+assert_jq_true_path "$STRICT" '.permissions.deny | index("Read(~/.kube/config)") != null' "strict still denies kube config reads"
+assert_jq_true_path "$STRICT" '[.permissions.ask[]] | all(startswith("Read(") | not)' "strict never downgrades a credential read to ask"
 assert_jq_true_path "$STRICT" '.permissions.ask | index("Bash(docker system prune *)") != null' "strict asks on docker system prune"
 assert_jq_true_path "$STRICT" '.permissions.ask | index("Bash(psql *)") != null' "strict asks on psql"
 assert_jq_true_path "$STRICT" '[.permissions.deny[], .permissions.ask[]] | index("Bash(*)") == null' "strict does not block whole Bash tool"
