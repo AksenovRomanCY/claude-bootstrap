@@ -1,6 +1,6 @@
 ---
-name: init
-description: Generate a CLAUDE.md for the current project by analyzing its structure, dependencies, and patterns
+name: bootstrap-init
+description: Generate a CLAUDE.md for the current project, seeded from a matching claude-bootstrap stack template
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Bash, Write
 ---
