@@ -189,5 +189,17 @@
     "name": "non recursive rm is no decision",
     "command": "rm dist/file.txt",
     "decision": "none"
+  },
+  {
+    "name": "quoted separator does not hide rm rf root",
+    "command": "rm -rf ';' /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "quoted dangerous command in echo is data",
+    "command": "echo 'rm -rf /'",
+    "decision": "none",
+    "rule": ""
   }
 ]

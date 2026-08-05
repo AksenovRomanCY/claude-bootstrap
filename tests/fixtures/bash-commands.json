@@ -297,20 +297,54 @@
   {
     "name": "background command separator",
     "command": "git status & git commit -n",
-    "separators": ["&"],
+    "separators": [
+      "&"
+    ],
     "segments": [
-      {"words": ["git", "status"], "env": {}, "wrappers": []},
-      {"words": ["git", "commit", "-n"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "git",
+          "commit",
+          "-n"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
   {
     "name": "stderr pipe separator",
     "command": "safe-command |& git push --mirror origin",
-    "separators": ["|&"],
+    "separators": [
+      "|&"
+    ],
     "segments": [
-      {"words": ["safe-command"], "env": {}, "wrappers": []},
-      {"words": ["git", "push", "--mirror", "origin"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "safe-command"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "git",
+          "push",
+          "--mirror",
+          "origin"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
@@ -318,7 +352,14 @@
     "name": "quoted ampersand is literal",
     "command": "echo \"a & b\"",
     "segments": [
-      {"words": ["echo", "a & b"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "echo",
+          "a & b"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
@@ -326,7 +367,14 @@
     "name": "escaped ampersand is literal",
     "command": "echo a\\&b",
     "segments": [
-      {"words": ["echo", "a&b"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "echo",
+          "a&b"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
@@ -335,45 +383,205 @@
     "command": "echo \"unterminated",
     "segments": [
       {
-        "words": ["echo", "unterminated"],
+        "words": [
+          "echo",
+          "unterminated"
+        ],
         "env": {},
         "wrappers": [],
-        "unsupported": ["unterminated quote"]
+        "unsupported": [
+          "unterminated quote"
+        ]
       }
     ],
-    "unsupported": ["unterminated quote"]
+    "unsupported": [
+      "unterminated quote"
+    ]
   },
   {
     "name": "trailing escape is unsupported",
     "command": "echo trailing\\",
     "segments": [
       {
-        "words": ["echo", "trailing\\"],
+        "words": [
+          "echo",
+          "trailing\\"
+        ],
         "env": {},
         "wrappers": [],
-        "unsupported": ["trailing escape"]
+        "unsupported": [
+          "trailing escape"
+        ]
       }
     ],
-    "unsupported": ["trailing escape"]
+    "unsupported": [
+      "trailing escape"
+    ]
   },
   {
     "name": "brace group is unsupported control syntax",
     "command": "{ git commit -n -m test; }",
-    "separators": [";"],
+    "separators": [
+      ";"
+    ],
     "segments": [
       {
-        "words": ["{", "git", "commit", "-n", "-m", "test"],
+        "words": [
+          "{",
+          "git",
+          "commit",
+          "-n",
+          "-m",
+          "test"
+        ],
         "env": {},
         "wrappers": [],
-        "unsupported": ["shell control syntax"]
+        "unsupported": [
+          "shell control syntax"
+        ]
       },
       {
-        "words": ["}"],
+        "words": [
+          "}"
+        ],
         "env": {},
         "wrappers": [],
-        "unsupported": ["shell control syntax"]
+        "unsupported": [
+          "shell control syntax"
+        ]
       }
     ],
-    "unsupported": ["shell control syntax"]
+    "unsupported": [
+      "shell control syntax"
+    ]
+  },
+  {
+    "name": "quoted separator is data",
+    "command": "rm -rf ';' /",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          ";",
+          "/"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "quoted pipe is data",
+    "command": "awk -F '|' '{print $1}' file",
+    "segments": [
+      {
+        "words": [
+          "awk",
+          "-F",
+          "|",
+          "{print $1}",
+          "file"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "backslash line continuation",
+    "command": "git push \\\n  --force origin main",
+    "segments": [
+      {
+        "words": [
+          "git",
+          "push",
+          "--force",
+          "origin",
+          "main"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "heredoc body is not parsed as commands",
+    "command": "cat > docs/runbook.md <<'EOF'\nrm -rf / is never acceptable\nEOF\n",
+    "segments": [
+      {
+        "words": [
+          "cat",
+          ">",
+          "docs/runbook.md"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      }
+    ],
+    "unsupported": [
+      "heredoc"
+    ]
+  },
+  {
+    "name": "command after heredoc body is parsed",
+    "command": "cat <<EOF\nsome text\nEOF\nrm -rf /",
+    "separators": [
+      "\n"
+    ],
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      },
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "/"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      }
+    ],
+    "unsupported": [
+      "heredoc"
+    ]
+  },
+  {
+    "name": "unterminated heredoc",
+    "command": "cat <<EOF\nunterminated",
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc",
+          "unterminated heredoc"
+        ]
+      }
+    ],
+    "unsupported": [
+      "heredoc",
+      "unterminated heredoc"
+    ]
   }
 ]

@@ -55,8 +55,14 @@ class ShellParseResult:
 
 
 @dataclass(frozen=True)
+class Token:
+    text: str
+    quoted: bool = False
+
+
+@dataclass(frozen=True)
 class TokenizeResult:
-    tokens: list[str]
+    tokens: list[Token]
     unsupported: list[str]
 
 
@@ -76,19 +82,89 @@ def add_unsupported(unsupported: list[str], construct: str) -> None:
         unsupported.append(construct)
 
 
+def read_heredoc_delimiter(command: str, index: int) -> tuple[str, int]:
+    delimiter = ""
+    quote = ""
+    while index < len(command):
+        char = command[index]
+        if quote:
+            if char == quote:
+                quote = ""
+            else:
+                delimiter += char
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char == "\\":
+            index += 1
+            if index < len(command):
+                delimiter += command[index]
+                index += 1
+            continue
+        if char.isspace() or char in {";", "&", "|", "<", ">"}:
+            break
+        delimiter += char
+        index += 1
+    return delimiter, index
+
+
+def skip_heredoc_bodies(
+    command: str,
+    index: int,
+    heredocs: list[tuple[str, bool]],
+    unsupported: list[str],
+) -> int:
+    """Consume heredoc bodies verbatim so their lines are never parsed as commands."""
+    for delimiter, strip_tabs in heredocs:
+        terminated = False
+        while index < len(command):
+            end = command.find("\n", index)
+            line = command[index:] if end == -1 else command[index:end]
+            index = len(command) if end == -1 else end + 1
+            candidate = line.lstrip("\t") if strip_tabs else line
+            if candidate.rstrip("\r") == delimiter:
+                terminated = True
+                break
+        if not terminated:
+            add_unsupported(unsupported, "unterminated heredoc")
+            break
+    return index
+
+
 def tokenize(command: str) -> TokenizeResult:
-    tokens: list[str] = []
+    tokens: list[Token] = []
     unsupported: list[str] = []
     token = ""
+    token_quoted = False
+    has_token = False
     quote = ""
     escaped = False
     index = 0
+    pending_heredocs: list[tuple[str, bool]] = []
+
+    def flush() -> None:
+        nonlocal token, token_quoted, has_token
+        if has_token:
+            tokens.append(Token(text=token, quoted=token_quoted))
+        token = ""
+        token_quoted = False
+        has_token = False
+
+    def append(text: str, *, quoted: bool = False) -> None:
+        nonlocal token, token_quoted, has_token
+        token += text
+        has_token = True
+        if quoted:
+            token_quoted = True
 
     while index < len(command):
         char = command[index]
 
         if escaped:
-            token += char
+            append(char, quoted=True)
             escaped = False
             index += 1
             continue
@@ -96,38 +172,48 @@ def tokenize(command: str) -> TokenizeResult:
         if quote == "'":
             if char == "'":
                 quote = ""
+                has_token = True
             else:
-                token += char
+                append(char, quoted=True)
             index += 1
             continue
 
         if quote == '"':
             if char == '"':
                 quote = ""
-            elif char == "\\":
+                has_token = True
                 index += 1
-                if index < len(command):
-                    token += command[index]
-                else:
-                    token += "\\"
-            elif char == "$" and index + 1 < len(command) and command[index + 1] == "(":
+                continue
+            if char == "\\":
+                index += 1
+                if index >= len(command):
+                    append("\\", quoted=True)
+                    continue
+                if command[index] == "\n":
+                    index += 1
+                    continue
+                append(command[index], quoted=True)
+                index += 1
+                continue
+            if char == "$" and index + 1 < len(command) and command[index + 1] == "(":
                 add_unsupported(unsupported, "command substitution")
-                token += char
             elif char == "`":
                 add_unsupported(unsupported, "backtick command substitution")
-                token += char
-            else:
-                token += char
+            append(char, quoted=True)
             index += 1
             continue
 
         if char == "\\":
+            if index + 1 < len(command) and command[index + 1] == "\n":
+                index += 2
+                continue
             escaped = True
             index += 1
             continue
 
         if char in {"'", '"'}:
             quote = char
+            has_token = True
             index += 1
             continue
 
@@ -135,78 +221,74 @@ def tokenize(command: str) -> TokenizeResult:
             add_unsupported(unsupported, "command substitution")
         elif char == "`":
             add_unsupported(unsupported, "backtick command substitution")
-        elif char == "<" and index + 1 < len(command) and command[index + 1] == "<":
+
+        if command.startswith("<<", index) and not command.startswith("<<<", index):
             add_unsupported(unsupported, "heredoc")
+            index += 2
+            strip_tabs = index < len(command) and command[index] == "-"
+            if strip_tabs:
+                index += 1
+            while index < len(command) and command[index] in {" ", "\t"}:
+                index += 1
+            delimiter, index = read_heredoc_delimiter(command, index)
+            if delimiter:
+                pending_heredocs.append((delimiter, strip_tabs))
+            continue
 
         if char in {" ", "\t", "\r"}:
-            if token:
-                tokens.append(token)
-                token = ""
+            flush()
             index += 1
             continue
 
         if char == "\n":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append("\n")
+            flush()
+            tokens.append(Token(text="\n"))
             index += 1
+            if pending_heredocs:
+                index = skip_heredoc_bodies(command, index, pending_heredocs, unsupported)
+                pending_heredocs = []
             continue
 
         if command.startswith(";;&", index) or command.startswith(";;", index) or command.startswith(";&", index):
             add_unsupported(unsupported, "unsupported control operator")
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append(";")
+            flush()
+            tokens.append(Token(text=";"))
             index += 3 if command.startswith(";;&", index) else 2
             continue
 
         if char == ";":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append(";")
+            flush()
+            tokens.append(Token(text=";"))
             index += 1
             continue
 
         if char == "&" and index + 1 < len(command) and command[index + 1] == "&":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append("&&")
+            flush()
+            tokens.append(Token(text="&&"))
             index += 2
             continue
 
         if char == "&":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append("&")
+            flush()
+            tokens.append(Token(text="&"))
             index += 1
             continue
 
         if char == "|" and index + 1 < len(command) and command[index + 1] == "&":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append("|&")
+            flush()
+            tokens.append(Token(text="|&"))
             index += 2
             continue
 
         if char == "|" and index + 1 < len(command) and command[index + 1] == "|":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append("||")
+            flush()
+            tokens.append(Token(text="||"))
             index += 2
             continue
 
         if char == "|":
-            if token:
-                tokens.append(token)
-                token = ""
-            tokens.append("|")
+            flush()
+            tokens.append(Token(text="|"))
             index += 1
             continue
 
@@ -219,16 +301,17 @@ def tokenize(command: str) -> TokenizeResult:
         if char in {"<", ">"} and index + 1 < len(command) and command[index + 1] == "(":
             add_unsupported(unsupported, "process substitution")
 
-        token += char
+        append(char)
         index += 1
 
     if escaped:
         add_unsupported(unsupported, "trailing escape")
-        token += "\\"
+        append("\\")
     if quote:
         add_unsupported(unsupported, "unterminated quote")
-    if token:
-        tokens.append(token)
+    if pending_heredocs:
+        add_unsupported(unsupported, "unterminated heredoc")
+    flush()
     return TokenizeResult(tokens=tokens, unsupported=unsupported)
 
 
@@ -313,16 +396,17 @@ def parse(command: str) -> ShellParseResult:
     pending_separator: str | None = None
 
     for token in tokenized.tokens:
-        if token in SEPARATORS:
+        # A quoted token is data, never an operator: `rm -rf ';' /` is one command.
+        if token.text in SEPARATORS and not token.quoted:
             segment = normalize_segment(current, tokenized.unsupported)
             if segment is not None:
                 if segments and pending_separator is not None:
                     separators.append(pending_separator)
                 segments.append(segment)
             current = []
-            pending_separator = token
+            pending_separator = token.text
             continue
-        current.append(token)
+        current.append(token.text)
 
     segment = normalize_segment(current, tokenized.unsupported)
     if segment is not None:

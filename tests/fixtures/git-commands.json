@@ -209,5 +209,11 @@
     "branch": "feature",
     "decision": "deny",
     "rule": "GIT-PUSH-MIRROR"
+  },
+  {
+    "name": "line continuation keeps force push deny",
+    "command": "git push \\\n  --force origin main",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
   }
 ]
