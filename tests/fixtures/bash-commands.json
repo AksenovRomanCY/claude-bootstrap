@@ -583,5 +583,145 @@
       "heredoc",
       "unterminated heredoc"
     ]
+  },
+  {
+    "name": "eval is not analyzable",
+    "command": "eval 'rm -rf /'",
+    "segments": [
+      {
+        "words": [
+          "eval",
+          "rm -rf /"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "eval"
+        ]
+      }
+    ],
+    "unsupported": [
+      "eval"
+    ]
+  },
+  {
+    "name": "xargs is not analyzable",
+    "command": "xargs rm -rf",
+    "segments": [
+      {
+        "words": [
+          "xargs",
+          "rm",
+          "-rf"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "xargs"
+        ]
+      }
+    ],
+    "unsupported": [
+      "xargs"
+    ]
+  },
+  {
+    "name": "absolute shell path with -c",
+    "command": "/bin/sh -c 'git push --force origin main'",
+    "segments": [
+      {
+        "words": [
+          "/bin/sh",
+          "-c",
+          "git push --force origin main"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "zsh with -c",
+    "command": "zsh -c 'rm -rf /'",
+    "segments": [
+      {
+        "words": [
+          "zsh",
+          "-c",
+          "rm -rf /"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "busybox shell with -c",
+    "command": "busybox sh -c 'rm -rf /'",
+    "segments": [
+      {
+        "words": [
+          "busybox",
+          "sh",
+          "-c",
+          "rm -rf /"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "timeout wrapper is stripped",
+    "command": "timeout 60 rm -rf /tmp/cache",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "/tmp/cache"
+        ],
+        "env": {},
+        "wrappers": [
+          "timeout"
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "exec wrapper is stripped",
+    "command": "exec git status",
+    "segments": [
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": [
+          "exec"
+        ]
+      }
+    ],
+    "unsupported": []
   }
 ]

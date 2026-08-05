@@ -3,10 +3,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 
 
 SEPARATORS = {"&&", "||", ";", "&", "|", "|&", "\n"}
-WRAPPERS = {"sudo", "env", "command", "nohup"}
+WRAPPERS = {
+    "sudo",
+    "doas",
+    "env",
+    "command",
+    "nohup",
+    "timeout",
+    "nice",
+    "setsid",
+    "stdbuf",
+    "ionice",
+    "exec",
+}
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "ash"}
+SUDO_OPTIONS_WITH_VALUES = {
+    "-A", "-a", "-b", "-C", "-c", "-D", "-g", "-h", "-p", "-R", "-r", "-T", "-t", "-U", "-u",
+    "--chdir", "--chroot", "--close-from", "--command-timeout", "--group", "--host",
+    "--other-user", "--prompt", "--role", "--type", "--user",
+}
+# Wrappers that take their own options before the real command: option flags that
+# consume a following value, and how many positional arguments precede it.
+WRAPPER_OPTIONS: dict[str, tuple[frozenset[str], int]] = {
+    "timeout": (frozenset({"-k", "--kill-after", "-s", "--signal"}), 1),
+    "nice": (frozenset({"-n", "--adjustment"}), 0),
+    "ionice": (frozenset({"-c", "--class", "-n", "--classdata", "-p", "--pid"}), 0),
+    "stdbuf": (frozenset({"-i", "--input", "-o", "--output", "-e", "--error"}), 0),
+    "setsid": (frozenset(), 0),
+    "doas": (frozenset({"-u", "-C"}), 0),
+}
 CONTROL_WORDS = {
     "!",
     "{",
@@ -315,8 +344,27 @@ def tokenize(command: str) -> TokenizeResult:
     return TokenizeResult(tokens=tokens, unsupported=unsupported)
 
 
+def is_duration(word: str) -> bool:
+    value = word[:-1] if word[-1:] in {"s", "m", "h", "d"} else word
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
+def base_name(word: str) -> str:
+    return PurePosixPath(word.replace("\\", "/")).name or word
+
+
 def is_shell_c_invocation(words: list[str]) -> bool:
-    if len(words) < 2 or words[0] not in {"bash", "sh"}:
+    if len(words) < 2:
+        return False
+
+    # `busybox sh -c ...` reaches the same place as `sh -c ...`.
+    if base_name(words[0]) == "busybox" and base_name(words[1]) in SHELLS:
+        return is_shell_c_invocation(words[1:])
+    if base_name(words[0]) not in SHELLS:
         return False
 
     for word in words[1:]:
@@ -347,17 +395,29 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
         env[name] = value
         index += 1
 
-    while index < len(words) and words[index] in WRAPPERS:
-        wrapper = words[index]
+    wrapper_unsupported: list[str] = []
+    while index < len(words) and base_name(words[index]) in WRAPPERS:
+        wrapper = base_name(words[index])
         wrappers.append(wrapper)
         index += 1
 
-        if wrapper == "sudo":
+        if wrapper in {"sudo", "doas"}:
             while index < len(words) and words[index].startswith("-"):
                 option = words[index]
                 index += 1
-                if option in {"-A", "-a", "-b", "-C", "-c", "-D", "-g", "-h", "-p", "-R", "-r", "-T", "-t", "-U", "-u"}:
+                if option in SUDO_OPTIONS_WITH_VALUES:
                     index += 1
+        elif wrapper in WRAPPER_OPTIONS:
+            options_with_values, positionals = WRAPPER_OPTIONS[wrapper]
+            while index < len(words) and words[index].startswith("-") and words[index] != "-":
+                option = words[index]
+                index += 1
+                if option in options_with_values:
+                    index += 1
+            # timeout takes a duration before the command; never swallow the command
+            # itself when the duration is missing.
+            if positionals and index < len(words) and is_duration(words[index]):
+                index += positionals
         elif wrapper == "env":
             while index < len(words) and words[index].startswith("-"):
                 option = words[index]
@@ -372,18 +432,23 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
             index += 1
 
     normalized = words[index:]
-    unsupported = list(command_unsupported)
+    unsupported = [*command_unsupported, *wrapper_unsupported]
+    leading = base_name(normalized[0]) if normalized else ""
 
     if is_shell_c_invocation(normalized):
-        unsupported.append("shell -c")
-    if normalized and normalized[0] in {"python", "python3", "node"} and any(
-        flag in normalized[1:] for flag in ("-c", "-e")
-    ):
-        unsupported.append("inline interpreter code")
-    if normalized and normalized[0] in {"powershell", "pwsh"}:
-        unsupported.append("powershell")
+        add_unsupported(unsupported, "shell -c")
+    if leading in {"python", "python3", "node"} and any(flag in normalized[1:] for flag in ("-c", "-e")):
+        add_unsupported(unsupported, "inline interpreter code")
+    if leading in {"powershell", "pwsh"}:
+        add_unsupported(unsupported, "powershell")
     if normalized and normalized[0] in CONTROL_WORDS:
         add_unsupported(unsupported, "shell control syntax")
+    # eval re-parses its arguments and xargs builds a command line from stdin, so
+    # neither can be analyzed statically: `eval 'rm -rf /'` must not pass silently.
+    if leading == "eval":
+        add_unsupported(unsupported, "eval")
+    if leading == "xargs":
+        add_unsupported(unsupported, "xargs")
 
     return CommandSegment(words=normalized, env=env, wrappers=wrappers, unsupported=unsupported)
 

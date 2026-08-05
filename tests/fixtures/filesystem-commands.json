@@ -201,5 +201,29 @@
     "command": "echo 'rm -rf /'",
     "decision": "none",
     "rule": ""
+  },
+  {
+    "name": "exec wrapper still denies rm rf root",
+    "command": "exec rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "timeout wrapper still denies rm rf root",
+    "command": "timeout 60 rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "nice wrapper still denies rm rf root",
+    "command": "nice -n 10 rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "sudo long option with value still denies rm rf root",
+    "command": "sudo --user root rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
   }
 ]
