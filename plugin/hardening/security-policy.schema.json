@@ -97,6 +97,21 @@
         }
       }
     },
+    "secrets": {
+      "description": "Secret detection policy for Write and Edit guards.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowPaths": {
+          "description": "Glob patterns for files whose secret findings are reported as a warning instead of blocking, for example test fixtures and documentation samples.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "largeFiles": {
       "description": "Thresholds for large file warnings and confirmation prompts.",
       "type": "object",

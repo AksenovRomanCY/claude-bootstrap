@@ -293,6 +293,90 @@ class SecretGuardTests(unittest.TestCase):
         self.assertIn("secret_guard warning", completed.stderr)
         self.assertNotIn("invalid", completed.stderr)
 
+    def write_policy(self, policy):
+        policy_dir = self.project / ".claude"
+        policy_dir.mkdir(exist_ok=True)
+        (policy_dir / "security-policy.json").write_text(json.dumps(policy), encoding="utf-8")
+
+    def test_edit_removing_an_existing_secret_is_allowed(self):
+        self.tracked_file.write_text(f'key = "{AWS_KEY}"\n', encoding="utf-8")
+
+        decision = evaluate(
+            edit_payload(self.tracked_file, f'key = "{AWS_KEY}"', 'key = os.environ["KEY"]', self.project)
+        )
+
+        self.assertEqual(decision.kind, DecisionKind.NONE)
+
+    def test_edit_elsewhere_in_a_file_holding_a_secret_is_allowed(self):
+        self.tracked_file.write_text(f'key = "{AWS_KEY}"\nvalue = 1\n', encoding="utf-8")
+
+        decision = evaluate(edit_payload(self.tracked_file, "value = 1", "value = 2", self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.NONE)
+
+    def test_edit_introducing_a_secret_is_denied(self):
+        self.tracked_file.write_text("value = 1\n", encoding="utf-8")
+
+        decision = evaluate(edit_payload(self.tracked_file, "value = 1", f'key = "{AWS_KEY}"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+        self.assertEqual(decision.rule_id, "SECRET-AWS-ACCESS-KEY")
+
+    def test_edit_introducing_a_second_secret_class_is_denied(self):
+        self.tracked_file.write_text(f'key = "{AWS_KEY}"\nvalue = 1\n', encoding="utf-8")
+
+        decision = evaluate(edit_payload(self.tracked_file, "value = 1", f'token = "{GITHUB_PAT}"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+        self.assertEqual(decision.rule_id, "SECRET-GITHUB-PAT")
+
+    def test_allow_paths_downgrades_to_warning(self):
+        self.write_policy({"version": 1, "secrets": {"allowPaths": ["tests/fixtures/**"]}})
+        fixture = self.project / "tests" / "fixtures" / "keys.json"
+        fixture.parent.mkdir(parents=True)
+
+        decision = evaluate(write_payload(fixture, f'{{"key": "{AWS_KEY}"}}', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.WARNING)
+        self.assertEqual(decision.rule_id, "SECRET-ALLOWED-PATH")
+
+    def test_allow_paths_does_not_affect_other_files(self):
+        self.write_policy({"version": 1, "secrets": {"allowPaths": ["tests/fixtures/**"]}})
+
+        decision = evaluate(write_payload(self.tracked_file, f'key = "{AWS_KEY}"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+
+    def test_strict_format_key_containing_a_marker_is_denied(self):
+        decision = evaluate(write_payload(self.tracked_file, 'key = "AKIATESTQWERTY123456"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+        self.assertEqual(decision.rule_id, "SECRET-AWS-ACCESS-KEY")
+
+    def test_credential_url_marker_in_host_does_not_suppress_detection(self):
+        content = "DATABASE_URL=postgres://ci:R3alPassw0rd@db-test.acme.internal/app"
+
+        self.assertEqual([finding.rule_id for finding in detect_secrets(content)], ["SECRET-CREDENTIAL-URL"])
+
+    def test_credential_url_placeholder_password_is_ignored(self):
+        content = "DATABASE_URL=postgres://ci:your-password-here@db.acme.internal/app"
+
+        self.assertEqual(detect_secrets(content), [])
+
+    def test_environment_reference_is_not_a_generic_secret(self):
+        for content in (
+            "const apiKey = process.env.API_KEY_PRODUCTION;",
+            "password = getPasswordFromVaultService",
+            "api_key = $SOME_ENV_VARIABLE_NAME_HERE",
+        ):
+            with self.subTest(content):
+                self.assertEqual(detect_secrets(content), [])
+
+    def test_unquoted_literal_is_still_a_generic_secret(self):
+        content = "API_TOKEN=superSecretValue1234567890"
+
+        self.assertEqual([finding.rule_id for finding in detect_secrets(content)], ["SECRET-GENERIC-LITERAL"])
+
 
 if __name__ == "__main__":
     unittest.main()
