@@ -433,8 +433,8 @@ copy_dir "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates" "bootstrap-templates"
 # --- Prune retired components ---
 retired_removed=0
 for retired in "${RETIRED_PATHS[@]}"; do
-  if [[ -e "$TARGET/$retired" ]]; then
-    rm -rf "$TARGET/$retired"
+  if [[ -e "${TARGET:?}/${retired:?}" ]]; then
+    rm -rf "${TARGET:?}/${retired:?}"
     retired_removed=$((retired_removed + 1))
   fi
 done
