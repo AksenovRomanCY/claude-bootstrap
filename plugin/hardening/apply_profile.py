@@ -399,6 +399,17 @@ def restore_file(path: Path, content: str | None) -> None:
         atomic_write(path, content)
 
 
+def read_settings(target: Path) -> tuple[dict[str, Any], str]:
+    """Parsed settings and their exact text, both empty when the file is absent.
+
+    The text is kept verbatim so a diff and a rollback see what was on disk,
+    not a reformatting of it.
+    """
+    if not target.exists():
+        return {}, ""
+    return load_json(target, "settings"), target.read_text(encoding="utf-8")
+
+
 def create_backup(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_path = path.with_name(f"{path.name}.backup-{stamp}")
@@ -526,12 +537,7 @@ def apply_profile(
         force=force,
     )
 
-    if target.exists():
-        existing = load_json(target, "settings")
-        before = target.read_text(encoding="utf-8")
-    else:
-        existing = {}
-        before = ""
+    existing, before = read_settings(target)
 
     base_existing = existing
     conflicts: list[str] = [*policy_conflicts]
@@ -660,12 +666,7 @@ def remove_profile(
         )
 
     target = settings_path(project_root)
-    if target.exists():
-        existing = load_json(target, "settings")
-        before = target.read_text(encoding="utf-8")
-    else:
-        existing = {}
-        before = ""
+    existing, before = read_settings(target)
 
     updated, conflicts = remove_managed_settings_from_data(existing, state, force=force)
     sandbox_overlay = state.get("sandboxOverlay")
@@ -740,12 +741,7 @@ def remove_sandbox_overlay(
         return ApplyResult(changed=False, conflicts=[], diff="")
 
     target = settings_path(project_root)
-    if target.exists():
-        existing = load_json(target, "settings")
-        before = target.read_text(encoding="utf-8")
-    else:
-        existing = {}
-        before = ""
+    existing, before = read_settings(target)
 
     updated, conflicts = remove_managed_settings_from_data(
         existing,
@@ -817,6 +813,36 @@ def resolve_profile_name(explicit: str | None, project_root: Path, *, from_state
     return "baseline"
 
 
+@dataclass(frozen=True)
+class ModeMessages:
+    """What to report for the selected mode, in each of its three outcomes."""
+
+    drifted: str
+    settled: str
+    done: str
+
+
+def mode_messages(args: argparse.Namespace) -> ModeMessages:
+    if args.remove_sandbox:
+        return ModeMessages(
+            drifted="Sandbox overlay is still applied.",
+            settled="Sandbox overlay has no managed state.",
+            done="Removed sandbox overlay.",
+        )
+    if args.remove:
+        return ModeMessages(
+            drifted=f"Profile '{args.profile}' still has managed state.",
+            settled=f"Profile '{args.profile}' has no managed state.",
+            done=f"Removed profile '{args.profile}'.",
+        )
+    suffix = " with sandbox overlay" if args.sandbox else ""
+    return ModeMessages(
+        drifted=f"Profile '{args.profile}'{suffix} is not fully applied.",
+        settled=f"Profile '{args.profile}'{suffix} is already applied.",
+        done=f"Applied profile '{args.profile}'{suffix}.",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.profile = resolve_profile_name(
@@ -868,46 +894,28 @@ def main(argv: list[str] | None = None) -> int:
             print("Use --force to replace conflicting scalar values.", file=sys.stderr)
         return 1
 
+    messages = mode_messages(args)
+
     if args.check:
-        if result.changed:
-            if args.remove_sandbox:
-                print("Sandbox overlay is still applied.")
-            elif args.remove:
-                print(f"Profile '{args.profile}' still has managed state.")
-            else:
-                suffix = " with sandbox overlay" if args.sandbox else ""
-                print(f"Profile '{args.profile}'{suffix} is not fully applied.")
-            if result.diff:
-                print(result.diff, end="")
-            return 1
-        if args.remove_sandbox:
-            print("Sandbox overlay has no managed state.")
-        elif args.remove:
-            print(f"Profile '{args.profile}' has no managed state.")
-        else:
-            suffix = " with sandbox overlay" if args.sandbox else ""
-            print(f"Profile '{args.profile}'{suffix} is already applied.")
+        if not result.changed:
+            print(messages.settled)
+            return 0
+        print(messages.drifted)
+        if result.diff:
+            print(result.diff, end="")
+        return 1
+
+    if not result.changed:
+        print("No changes.")
         return 0
 
     if args.dry_run:
-        if result.changed:
-            print(result.diff, end="")
-        else:
-            print("No changes.")
+        print(result.diff, end="")
         return 0
 
-    if result.changed:
-        if args.remove_sandbox:
-            print("Removed sandbox overlay.")
-        elif args.remove:
-            print(f"Removed profile '{args.profile}'.")
-        else:
-            suffix = " with sandbox overlay" if args.sandbox else ""
-            print(f"Applied profile '{args.profile}'{suffix}.")
-        for backup_path in result.backup_paths:
-            print(f"Backup: {backup_path}")
-    else:
-        print("No changes.")
+    print(messages.done)
+    for backup_path in result.backup_paths:
+        print(f"Backup: {backup_path}")
     return 0
 
 
