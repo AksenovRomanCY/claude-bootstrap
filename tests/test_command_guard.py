@@ -26,6 +26,7 @@ from guard.decisions import Decision, DecisionKind, combine
 from guard.filesystem import evaluate as evaluate_filesystem
 from guard.git import load_git_context
 from guard.infrastructure import evaluate as evaluate_infrastructure
+from guard.infrastructure import is_production_value
 from guard.shell import parse
 
 spec = importlib.util.spec_from_file_location("command_guard", COMMAND_GUARD)
@@ -70,8 +71,16 @@ def post_write_payload(file_path, content, cwd=ROOT):
     }
 
 
-def env_without_path():
+def isolated_env():
+    """Guard runs must not inherit the developer's environment classification."""
     env = os.environ.copy()
+    for name in ("ENV", "ENVIRONMENT", "STAGE", "NODE_ENV"):
+        env.pop(name, None)
+    return env
+
+
+def env_without_path():
+    env = isolated_env()
     env["PATH"] = ""
     return env
 
@@ -167,7 +176,7 @@ class CommandGuardTests(unittest.TestCase):
             text=True,
             capture_output=True,
             check=False,
-            env=env,
+            env=isolated_env() if env is None else env,
         )
 
     def test_decision_priority(self):
@@ -473,12 +482,29 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(decisions[0].kind, DecisionKind.ASK)
         self.assertEqual(decisions[0].rule_id, "TERRAFORM-APPLY")
 
-    def test_infrastructure_environment_detection_uses_process_env(self):
+    def test_infrastructure_ignores_ambient_process_env(self):
         with mock.patch.dict(os.environ, {"ENVIRONMENT": "production"}, clear=True):
             decisions = evaluate_infrastructure(from_hook_payload(bash_payload("terraform apply")), parse("terraform apply"))
 
+        self.assertEqual(decisions[0].kind, DecisionKind.ASK)
+        self.assertEqual(decisions[0].rule_id, "TERRAFORM-APPLY")
+
+    def test_infrastructure_environment_detection_uses_command_env(self):
+        command = "ENVIRONMENT=production terraform apply"
+        with mock.patch.dict(os.environ, {}, clear=True):
+            decisions = evaluate_infrastructure(from_hook_payload(bash_payload(command)), parse(command))
+
         self.assertEqual(decisions[0].kind, DecisionKind.DENY)
         self.assertEqual(decisions[0].rule_id, "PRODUCTION-DESTRUCTIVE")
+
+    def test_production_marker_matches_only_whole_or_edge_components(self):
+        markers = ["prod", "production"]
+        for value in ("production", "prod-eu-1", "cluster-prod"):
+            with self.subTest(value=value, expected=True):
+                self.assertTrue(is_production_value(value, markers, []))
+        for value in ("pre-production-mirror", "not-production", "staging.production-mirror.local", "myprod"):
+            with self.subTest(value=value, expected=False):
+                self.assertFalse(is_production_value(value, markers, []))
 
     def test_strict_unknown_environment_requires_confirmation(self):
         with strict_policy_workspace() as cwd:

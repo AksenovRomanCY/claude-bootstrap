@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -19,6 +18,8 @@ from .shell import CommandSegment, ShellParseResult
 CONTEXT_TIMEOUT_SECONDS = 2
 DEFAULT_PRODUCTION_MARKERS = ["prod", "production"]
 ENVIRONMENT_VARIABLES = ("ENV", "ENVIRONMENT", "STAGE", "NODE_ENV")
+# "pre-production" and "not-production" name environments that are not production.
+NEGATED_PREFIXES = ("not-", "not_", "non-", "non_", "no-", "pre-", "pre_")
 PRODUCTION_FLAG_NAMES = {
     "--env",
     "--environment",
@@ -362,12 +363,11 @@ def detect_production(segment: CommandSegment, context: GuardContext) -> Product
 
 
 def production_from_env(segment: CommandSegment, policy: ProductionPolicy) -> ProductionSignals:
-    values: list[str] = []
-    for name in ENVIRONMENT_VARIABLES:
-        if name in segment.env:
-            values.append(segment.env[name])
-        if name in os.environ:
-            values.append(os.environ[name])
+    # Only variables set on the command itself count. The hook process inherits the
+    # developer's shell, where an exported NODE_ENV=production says nothing about
+    # what this command targets, and it produced an unappealable deny on every
+    # infrastructure command. Production-sensitive operations still prompt.
+    values = [segment.env[name] for name in ENVIRONMENT_VARIABLES if name in segment.env]
 
     for value in values:
         if is_production_value(value, policy.markers, []):
@@ -456,17 +456,28 @@ def string_list(value: object) -> list[str]:
 
 
 def is_production_value(value: str, markers: list[str], exact_values: list[str]) -> bool:
+    """A marker counts only as the whole value or as its leading/trailing component.
+
+    An interior match reads "pre-production-mirror" and "not-production" as
+    production, which turns a mirror or a review environment into a hard deny.
+    Name such environments explicitly through the policy's exact value lists.
+    """
     normalized = value.lower()
     for exact in exact_values:
         if normalized == exact.lower():
             return True
-    parts = [part for part in re.split(r"[^a-z0-9]+", normalized) if part]
+    if normalized.startswith(NEGATED_PREFIXES):
+        return False
     for marker in markers:
         normalized_marker = marker.lower()
         if not normalized_marker:
             continue
         if normalized == normalized_marker:
             return True
-        if normalized_marker in parts:
+        head = normalized[: len(normalized_marker) + 1]
+        if head == f"{normalized_marker}{head[-1:]}" and not head[-1:].isalnum():
+            return True
+        tail = normalized[-(len(normalized_marker) + 1) :]
+        if tail[1:] == normalized_marker and not tail[:1].isalnum():
             return True
     return False
