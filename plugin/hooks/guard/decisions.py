@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Protocol, TypeVar
 
 
 class DecisionKind(str, Enum):
@@ -57,3 +58,22 @@ def combine(decisions: list[Decision]) -> Decision:
     if not decisions:
         return Decision.none()
     return max(decisions, key=lambda decision: PRIORITY[decision.kind])
+
+
+class HasRuleId(Protocol):
+    rule_id: str
+
+
+FindingT = TypeVar("FindingT", bound=HasRuleId)
+
+
+def dedupe_by_rule_id(findings: list[FindingT]) -> list[FindingT]:
+    """First finding per rule, so one rule never reports the same thing twice."""
+    deduped: list[FindingT] = []
+    seen: set[str] = set()
+    for finding in findings:
+        if finding.rule_id in seen:
+            continue
+        seen.add(finding.rule_id)
+        deduped.append(finding)
+    return deduped

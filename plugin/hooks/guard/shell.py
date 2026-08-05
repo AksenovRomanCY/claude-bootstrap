@@ -333,6 +333,13 @@ def base_name(word: str) -> str:
     return PurePosixPath(word.replace("\\", "/")).name or word
 
 
+def normalized_command(segment: CommandSegment) -> str | None:
+    """Command name without its path, so /usr/bin/git is judged as git."""
+    if segment.command is None:
+        return None
+    return base_name(segment.command)
+
+
 def is_shell_c_invocation(words: list[str]) -> bool:
     if len(words) < 2:
         return False

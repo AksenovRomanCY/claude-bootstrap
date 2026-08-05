@@ -17,6 +17,7 @@ HOOKS_DIR = SCRIPT_DIR.parent
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
+from guard.decisions import dedupe_by_rule_id  # noqa: E402
 from guard.secrets import detect_secrets  # noqa: E402
 
 
@@ -109,7 +110,7 @@ def post_write_findings(post_input: PostWriteInput) -> list[WarningFinding]:
     findings.extend(debug_findings(post_input.content))
     findings.extend(path_findings(post_input.file_path, post_input.content))
     findings.extend(todo_findings(post_input.content))
-    return dedupe_findings(findings)
+    return dedupe_by_rule_id(findings)
 
 
 def secret_findings(content: str) -> list[WarningFinding]:
@@ -180,17 +181,6 @@ def matches_any(path: str, patterns: list[str]) -> bool:
         for candidate in candidates
         for pattern in patterns
     )
-
-
-def dedupe_findings(findings: list[WarningFinding]) -> list[WarningFinding]:
-    deduped: list[WarningFinding] = []
-    seen: set[str] = set()
-    for finding in findings:
-        if finding.rule_id in seen:
-            continue
-        seen.add(finding.rule_id)
-        deduped.append(finding)
-    return deduped
 
 
 def warning_output(file_path: str, findings: list[WarningFinding]) -> dict[str, object]:

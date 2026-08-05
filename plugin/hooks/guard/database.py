@@ -10,7 +10,7 @@ from .context import HookContext
 from .decisions import Decision
 from .paths import find_project_root
 from .policy import load_policy, policy_section
-from .shell import CommandSegment, ShellParseResult
+from .shell import CommandSegment, ShellParseResult, normalized_command
 
 
 SQL_PATTERNS = (
@@ -91,12 +91,6 @@ def command_values(args: list[str], options: set[str]) -> list[str]:
 
 def is_destructive_sql(sql: str) -> bool:
     return any(pattern.search(sql) for pattern in SQL_PATTERNS)
-
-
-def normalized_command(segment: CommandSegment) -> str | None:
-    if segment.command is None:
-        return None
-    return Path(segment.command).name
 
 
 def load_database_policy(project_root: Path) -> DatabasePolicy:

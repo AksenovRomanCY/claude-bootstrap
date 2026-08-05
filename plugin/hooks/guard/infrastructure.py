@@ -11,7 +11,7 @@ from .decisions import Decision
 from .paths import find_project_root
 from .policy import load_policy, policy_section, string_list
 from .process import command_output
-from .shell import CommandSegment, ShellParseResult
+from .shell import CommandSegment, ShellParseResult, normalized_command
 
 
 DEFAULT_PRODUCTION_MARKERS = ["prod", "production"]
@@ -278,12 +278,6 @@ def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str]
     if index < len(args):
         return args[index], args[index + 1 :], None
     return None, [], None
-
-
-def normalized_command(segment: CommandSegment) -> str | None:
-    if segment.command is None:
-        return None
-    return Path(segment.command).name
 
 
 def deletes_protected_namespace(args: list[str]) -> bool:

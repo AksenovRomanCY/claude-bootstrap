@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .decisions import Decision, DecisionKind
+from .decisions import Decision, combine, dedupe_by_rule_id
 from .edit_content import EditReconstructionError, reconstruct_edit
 from .paths import find_project_root, path_matches_patterns, relative_to_project, resolve_file_path
 from .policy import load_policy, policy_section, string_list
@@ -117,7 +117,7 @@ def evaluate(payload: dict[str, Any]) -> Decision:
 
     file_class = classify_file(secret_input.file_path, project_root)
     decisions = [decision_for_finding(finding, file_class, secret_input.display_path) for finding in findings]
-    return strongest(decisions)
+    return combine(decisions)
 
 
 def new_findings(content: str, baseline_content: str | None) -> list[SecretFinding]:
@@ -214,18 +214,7 @@ def detect_secrets(content: str) -> list[SecretFinding]:
     ):
         findings.append(SecretFinding("SECRET-GENERIC-LITERAL", "generic credential assignment", FindingSeverity.GENERIC))
 
-    return dedupe_findings(findings)
-
-
-def dedupe_findings(findings: list[SecretFinding]) -> list[SecretFinding]:
-    deduped: list[SecretFinding] = []
-    seen: set[str] = set()
-    for finding in findings:
-        if finding.rule_id in seen:
-            continue
-        seen.add(finding.rule_id)
-        deduped.append(finding)
-    return deduped
+    return dedupe_by_rule_id(findings)
 
 
 def is_placeholder(value: str) -> bool:
@@ -317,15 +306,3 @@ def decision_for_finding(finding: SecretFinding, file_class: FileClass, display_
 
 def reason_for(secret_type: str, display_path: str, remediation: str) -> str:
     return f"Detected {secret_type} in {display_path}. {remediation}"
-
-
-def strongest(decisions: list[Decision]) -> Decision:
-    if not decisions:
-        return Decision.none()
-    priority = {
-        DecisionKind.NONE: 0,
-        DecisionKind.WARNING: 1,
-        DecisionKind.ASK: 2,
-        DecisionKind.DENY: 3,
-    }
-    return max(decisions, key=lambda decision: priority[decision.kind])
