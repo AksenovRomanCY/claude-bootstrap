@@ -7,6 +7,12 @@ from pathlib import PurePosixPath
 
 
 SEPARATORS = {"&&", "||", ";", "&", "|", "|&", "\n"}
+# Longest first, so `;;&` wins over `;;` and `&&` over `&`. A newline is also a
+# separator but is matched separately: it terminates a heredoc redirection.
+OPERATORS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|")
+# `case` arm terminators. They only appear inside a case statement, which the
+# guard does not model, so they are reported and treated as a plain separator.
+CASE_OPERATORS = {";;&": ";", ";;": ";", ";&": ";"}
 WRAPPERS = {
     "sudo",
     "doas",
@@ -109,6 +115,10 @@ def is_assignment(word: str) -> bool:
 def add_unsupported(unsupported: list[str], construct: str) -> None:
     if construct not in unsupported:
         unsupported.append(construct)
+
+
+def match_operator(command: str, index: int) -> str | None:
+    return next((operator for operator in OPERATORS if command.startswith(operator, index)), None)
 
 
 def read_heredoc_delimiter(command: str, index: int) -> tuple[str, int]:
@@ -278,47 +288,13 @@ def tokenize(command: str) -> TokenizeResult:
                 pending_heredocs = []
             continue
 
-        if command.startswith(";;&", index) or command.startswith(";;", index) or command.startswith(";&", index):
-            add_unsupported(unsupported, "unsupported control operator")
+        operator = match_operator(command, index)
+        if operator is not None:
+            if operator in CASE_OPERATORS:
+                add_unsupported(unsupported, "unsupported control operator")
             flush()
-            tokens.append(Token(text=";"))
-            index += 3 if command.startswith(";;&", index) else 2
-            continue
-
-        if char == ";":
-            flush()
-            tokens.append(Token(text=";"))
-            index += 1
-            continue
-
-        if char == "&" and index + 1 < len(command) and command[index + 1] == "&":
-            flush()
-            tokens.append(Token(text="&&"))
-            index += 2
-            continue
-
-        if char == "&":
-            flush()
-            tokens.append(Token(text="&"))
-            index += 1
-            continue
-
-        if char == "|" and index + 1 < len(command) and command[index + 1] == "&":
-            flush()
-            tokens.append(Token(text="|&"))
-            index += 2
-            continue
-
-        if char == "|" and index + 1 < len(command) and command[index + 1] == "|":
-            flush()
-            tokens.append(Token(text="||"))
-            index += 2
-            continue
-
-        if char == "|":
-            flush()
-            tokens.append(Token(text="|"))
-            index += 1
+            tokens.append(Token(text=CASE_OPERATORS.get(operator, operator)))
+            index += len(operator)
             continue
 
         if char == "(" and not (index > 0 and command[index - 1] in {"$", "<", ">"}):

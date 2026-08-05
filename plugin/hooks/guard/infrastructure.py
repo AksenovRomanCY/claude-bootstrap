@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,10 +10,10 @@ from .context import HookContext
 from .decisions import Decision
 from .paths import find_project_root
 from .policy import load_policy, policy_section, string_list
+from .process import command_output
 from .shell import CommandSegment, ShellParseResult
 
 
-CONTEXT_TIMEOUT_SECONDS = 2
 DEFAULT_PRODUCTION_MARKERS = ["prod", "production"]
 ENVIRONMENT_VARIABLES = ("ENV", "ENVIRONMENT", "STAGE", "NODE_ENV")
 # "pre-production" and "not-production" name environments that are not production.
@@ -396,24 +395,6 @@ def production_from_flags(args: list[str], policy: ProductionPolicy) -> Producti
             return ProductionSignals(True, "command flag")
 
     return ProductionSignals()
-
-
-def command_output(cwd: Path, command: list[str]) -> str | None:
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=str(cwd),
-            text=True,
-            capture_output=True,
-            timeout=CONTEXT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if completed.returncode != 0:
-        return None
-    return completed.stdout.strip()
 
 
 def load_production_policy(project_root: Path) -> ProductionPolicy:

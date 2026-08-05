@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -13,9 +12,9 @@ from .decisions import Decision, DecisionKind
 from .edit_content import EditReconstructionError, reconstruct_edit
 from .paths import find_project_root, path_matches_patterns, relative_to_project, resolve_file_path
 from .policy import load_policy, policy_section, string_list
+from .process import command_succeeds
 
 
-GIT_TIMEOUT_SECONDS = 2
 # Matched against delimiter/camelCase-bounded parts of the candidate value,
 # never as raw substrings ("latest" must not count as "test").
 PLACEHOLDER_MARKERS = frozenset(
@@ -284,26 +283,11 @@ def load_allow_paths(project_root: Path) -> list[str]:
 
 def classify_file(file_path: Path, project_root: Path) -> FileClass:
     relative_path = relative_to_project(file_path, project_root)
-    if git_path_matches(project_root, ["ls-files", "--error-unmatch", "--", relative_path]):
+    if command_succeeds(project_root, ["git", "ls-files", "--error-unmatch", "--", relative_path]):
         return FileClass.TRACKED_SOURCE
-    if git_path_matches(project_root, ["check-ignore", "-q", "--", relative_path]):
+    if command_succeeds(project_root, ["git", "check-ignore", "-q", "--", relative_path]):
         return FileClass.IGNORED
     return FileClass.UNTRACKED_COMMITTABLE
-
-
-def git_path_matches(project_root: Path, args: list[str]) -> bool:
-    try:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=str(project_root),
-            text=True,
-            capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return completed.returncode == 0
 
 
 def decision_for_finding(finding: SecretFinding, file_class: FileClass, display_path: str) -> Decision:

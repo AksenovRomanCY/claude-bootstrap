@@ -401,7 +401,7 @@ class CommandGuardTests(unittest.TestCase):
             seen.append(tuple(command))
             return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-        with mock.patch("guard.git.subprocess.run", side_effect=fake_run):
+        with mock.patch("guard.process.subprocess.run", side_effect=fake_run):
             load_git_context(ROOT)
 
         self.assertEqual(set(seen), allowed)
@@ -465,7 +465,7 @@ class CommandGuardTests(unittest.TestCase):
 
         commands = ["kubectl delete deployment app", "terraform apply"]
         with mock.patch.dict(os.environ, {}, clear=True):
-            with mock.patch("guard.infrastructure.subprocess.run", side_effect=fake_run):
+            with mock.patch("guard.process.subprocess.run", side_effect=fake_run):
                 for command in commands:
                     evaluate_infrastructure(from_hook_payload(bash_payload(command)), parse(command))
 
@@ -476,7 +476,7 @@ class CommandGuardTests(unittest.TestCase):
             raise OSError("missing command")
 
         with mock.patch.dict(os.environ, {}, clear=True):
-            with mock.patch("guard.infrastructure.subprocess.run", side_effect=missing_command):
+            with mock.patch("guard.process.subprocess.run", side_effect=missing_command):
                 decisions = evaluate_infrastructure(from_hook_payload(bash_payload("terraform apply")), parse("terraform apply"))
 
         self.assertEqual(decisions[0].kind, DecisionKind.ASK)

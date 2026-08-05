@@ -723,5 +723,155 @@
       }
     ],
     "unsupported": []
+  },
+  {
+    "name": "case arm terminator is reported and split",
+    "command": "echo one ;; echo two",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      },
+      {
+        "words": [
+          "echo",
+          "two"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      }
+    ],
+    "unsupported": [
+      "unsupported control operator"
+    ]
+  },
+  {
+    "name": "fallthrough case arm terminator",
+    "command": "echo one ;& echo two",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      },
+      {
+        "words": [
+          "echo",
+          "two"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      }
+    ],
+    "unsupported": [
+      "unsupported control operator"
+    ]
+  },
+  {
+    "name": "resume case arm terminator",
+    "command": "echo one ;;& echo two",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      },
+      {
+        "words": [
+          "echo",
+          "two"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      }
+    ],
+    "unsupported": [
+      "unsupported control operator"
+    ]
+  },
+  {
+    "name": "longest operator wins over its prefix",
+    "command": "a && b & c || d | e",
+    "separators": [
+      "&&",
+      "&",
+      "||",
+      "|"
+    ],
+    "segments": [
+      {
+        "words": [
+          "a"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "b"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "c"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "d"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "e"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
   }
 ]

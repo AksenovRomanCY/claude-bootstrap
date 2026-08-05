@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from .context import HookContext
 from .decisions import Decision
 from .policy import load_policy, string_list
+from .process import command_output
 from .shell import CommandSegment, ShellParseResult
 
 
 DEFAULT_PROTECTED_BRANCHES = ["main", "master"]
-GIT_TIMEOUT_SECONDS = 2
 
 GIT_GLOBAL_OPTIONS_WITH_VALUES = {
     "-C",
@@ -131,10 +130,10 @@ def parse_git_invocation(segment: CommandSegment) -> GitInvocation | None:
 
 
 def load_git_context(cwd: Path) -> GitContext:
-    project_root = git_output(cwd, ["git", "rev-parse", "--show-toplevel"])
+    project_root = command_output(cwd, ["git", "rev-parse", "--show-toplevel"])
     root = Path(project_root).resolve() if project_root else cwd.resolve()
-    current_branch = git_output(cwd, ["git", "branch", "--show-current"]) or None
-    status = git_output(cwd, ["git", "status", "--porcelain"])
+    current_branch = command_output(cwd, ["git", "branch", "--show-current"]) or None
+    status = command_output(cwd, ["git", "status", "--porcelain"])
     dirty = None if status is None else bool(status.strip())
 
     return GitContext(
@@ -143,24 +142,6 @@ def load_git_context(cwd: Path) -> GitContext:
         dirty=dirty,
         protected_branches=load_protected_branches(root),
     )
-
-
-def git_output(cwd: Path, command: list[str]) -> str | None:
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=str(cwd),
-            text=True,
-            capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if completed.returncode != 0:
-        return None
-    return completed.stdout.strip()
 
 
 def load_protected_branches(project_root: Path) -> list[str]:

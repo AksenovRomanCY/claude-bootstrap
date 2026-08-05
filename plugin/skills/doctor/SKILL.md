@@ -41,7 +41,7 @@ Run a read-only health check on the claude-bootstrap installation and the curren
 
 6. **Check hooks and hardening assets** — verify files in `~/.claude/`:
    - Scripts: `hooks/scripts/secret_guard.py`, `hooks/scripts/large_file_policy.py`, `hooks/scripts/command_guard.py`, `hooks/scripts/post_write_warnings.py`, `hooks/scripts/block-large-files.sh` compatibility wrapper, `hooks/scripts/block-no-verify.sh`, `hooks/scripts/warn-debug-code.sh` compatibility wrapper, `hooks/scripts/warn-secrets.sh` compatibility wrapper, `hooks/scripts/remind-compact.sh`
-   - Guard modules: `hooks/guard/__init__.py`, `hooks/guard/context.py`, `hooks/guard/database.py`, `hooks/guard/decisions.py`, `hooks/guard/edit_content.py`, `hooks/guard/filesystem.py`, `hooks/guard/git.py`, `hooks/guard/infrastructure.py`, `hooks/guard/paths.py`, `hooks/guard/policy.py`, `hooks/guard/rules.py`, `hooks/guard/secrets.py`, `hooks/guard/shell.py`
+   - Guard modules: `hooks/guard/__init__.py`, `hooks/guard/context.py`, `hooks/guard/database.py`, `hooks/guard/decisions.py`, `hooks/guard/edit_content.py`, `hooks/guard/filesystem.py`, `hooks/guard/git.py`, `hooks/guard/infrastructure.py`, `hooks/guard/paths.py`, `hooks/guard/policy.py`, `hooks/guard/process.py`, `hooks/guard/rules.py`, `hooks/guard/secrets.py`, `hooks/guard/shell.py`
    - Hardening profiles: `hardening/profiles/baseline.settings.json`, `hardening/profiles/strict.settings.json`, `hardening/profiles/sandbox.settings.json`
    - Hardening defaults: `hardening/defaults/baseline-policy.json`, `hardening/defaults/strict-policy.json`, `hardening/security-policy.schema.json`, `hardening/apply_profile.py`
    - Verify `.sh` scripts are executable (`test -x`)
@@ -84,7 +84,7 @@ Run a read-only health check on the claude-bootstrap installation and the curren
    Templates:  11/11 — OK
    Agents:     4/4 — OK
    Skills:     12/12 — OK
-   Hooks:      22/22 files, shell scripts executable — OK
+   Hooks:      23/23 files, shell scripts executable — OK
    Settings:   hooks configured — OK
    Hardening:  profiles, policy schema, command guard — OK
    Policy:     baseline — OK

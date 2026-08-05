@@ -20,6 +20,7 @@ from guard.paths import (  # noqa: E402
     resolve_file_path,
 )
 from guard.policy import load_policy, policy_section, string_list  # noqa: E402
+from guard.process import command_output, command_succeeds, run_command  # noqa: E402
 
 
 class ProjectRootTests(unittest.TestCase):
@@ -168,6 +169,59 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(string_list(["a", "", 1, None, "b"]), ["a", "b"])
         self.assertEqual(string_list("not a list"), [])
         self.assertEqual(string_list(None), [])
+
+
+class ProcessTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cwd = Path(self.tmpdir.name).resolve()
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def python(self, source):
+        return [sys.executable, "-c", source]
+
+    def test_run_command_returns_the_completed_process(self):
+        completed = run_command(self.cwd, self.python("print('hello')"))
+
+        self.assertIsNotNone(completed)
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "hello")
+
+    def test_a_missing_binary_is_unknown_rather_than_an_error(self):
+        self.assertIsNone(run_command(self.cwd, ["claude-bootstrap-no-such-binary"]))
+        self.assertIsNone(command_output(self.cwd, ["claude-bootstrap-no-such-binary"]))
+        self.assertFalse(command_succeeds(self.cwd, ["claude-bootstrap-no-such-binary"]))
+
+    def test_a_command_that_outlives_its_timeout_is_unknown(self):
+        slow = self.python("import time; time.sleep(30)")
+
+        self.assertIsNone(run_command(self.cwd, slow, timeout=0.3))
+
+    def test_command_output_trims_and_requires_success(self):
+        self.assertEqual(command_output(self.cwd, self.python("print('  spaced  ')")), "spaced")
+        self.assertIsNone(command_output(self.cwd, self.python("raise SystemExit(3)")))
+
+    def test_command_succeeds_reports_the_exit_status(self):
+        self.assertTrue(command_succeeds(self.cwd, self.python("pass")))
+        self.assertFalse(command_succeeds(self.cwd, self.python("raise SystemExit(1)")))
+
+    def test_arguments_are_never_interpreted_by_a_shell(self):
+        marker = self.cwd / "shell-ran"
+        completed = run_command(self.cwd, ["echo", f"x; touch {marker}"])
+
+        self.assertIsNotNone(completed)
+        self.assertIn(";", completed.stdout)
+        self.assertFalse(marker.exists())
+
+    def test_commands_run_in_the_requested_directory(self):
+        nested = self.cwd / "nested"
+        nested.mkdir()
+
+        output = command_output(nested, self.python("import os; print(os.getcwd())"))
+
+        self.assertEqual(Path(output).resolve(), nested)
 
 
 if __name__ == "__main__":
