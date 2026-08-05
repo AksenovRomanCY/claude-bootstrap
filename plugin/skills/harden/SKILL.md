@@ -100,14 +100,14 @@ Default: `/harden` is the same as `/harden --baseline`.
    - Stop after remove-sandbox mode
    - If `$ARGUMENTS` contains `--remove`, preview removal first:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove --dry-run
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --remove --dry-run
      ```
    - Explain that removal only uses `.claude/harden-state.json`
    - Confirm that `.claude/rules/` is not removed
    - If conflicts are reported, stop and explain that `--force` is required for modified managed values
    - Ask for explicit confirmation before running:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --remove
      ```
    - Use `--force` only when the user explicitly requested it
    - Summarize removed managed settings, policy removal, and state removal

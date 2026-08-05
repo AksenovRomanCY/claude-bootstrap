@@ -744,6 +744,79 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertIn("Removed profile", completed.stdout)
         self.assertFalse((self.project / ".claude" / "harden-state.json").exists())
 
+    def test_remove_backs_up_settings_and_policy(self):
+        self.write_settings({"permissions": {"ask": ["Bash(existing *)"]}})
+        self.apply()
+        pre_remove_settings = self.settings.read_text(encoding="utf-8")
+        pre_remove_policy = self.policy.read_text(encoding="utf-8")
+        settings_backups_after_apply = set(self.settings.parent.glob("settings.json.backup-*"))
+
+        result = self.remove()
+
+        self.assertTrue(result.changed)
+        new_settings_backups = set(self.settings.parent.glob("settings.json.backup-*")) - settings_backups_after_apply
+        policy_backups = list(self.settings.parent.glob("security-policy.json.backup-*"))
+        self.assertEqual(len(new_settings_backups), 1)
+        self.assertEqual(len(policy_backups), 1)
+        self.assertEqual(new_settings_backups.pop().read_text(encoding="utf-8"), pre_remove_settings)
+        self.assertEqual(policy_backups[0].read_text(encoding="utf-8"), pre_remove_policy)
+
+    def test_remove_dry_run_creates_no_backups(self):
+        self.write_settings({"permissions": {"ask": ["Bash(existing *)"]}})
+        self.apply()
+        settings_backups_after_apply = set(self.settings.parent.glob("settings.json.backup-*"))
+
+        self.remove(dry_run=True)
+
+        self.assertEqual(set(self.settings.parent.glob("settings.json.backup-*")), settings_backups_after_apply)
+        self.assertEqual(list(self.settings.parent.glob("security-policy.json.backup-*")), [])
+
+    def test_force_policy_replacement_backs_up_policy(self):
+        self.apply()
+        custom_policy = self.read_policy()
+        custom_policy["largeFiles"]["warningLines"] = 5
+        self.write_policy(custom_policy)
+        pre_force_policy = self.policy.read_text(encoding="utf-8")
+
+        result = self.apply(force=True)
+
+        self.assertTrue(result.changed)
+        policy_backups = list(self.settings.parent.glob("security-policy.json.backup-*"))
+        self.assertEqual(len(policy_backups), 1)
+        self.assertEqual(policy_backups[0].read_text(encoding="utf-8"), pre_force_policy)
+
+    def test_remove_sandbox_overlay_backs_up_settings(self):
+        self.apply_with_supported_sandbox()
+        pre_remove_settings = self.settings.read_text(encoding="utf-8")
+
+        result = apply_profile.remove_sandbox_overlay(project_root=self.project)
+
+        self.assertTrue(result.changed)
+        backups = list(self.settings.parent.glob("settings.json.backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), pre_remove_settings)
+
+    def test_cli_remove_and_check_default_to_applied_profile(self):
+        completed = self.run_cli("--profile", "strict")
+        self.assertEqual(completed.returncode, 0)
+
+        completed = self.run_cli("--check")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("Profile 'strict' is already applied.", completed.stdout)
+
+        completed = self.run_cli("--remove")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("Removed profile 'strict'.", completed.stdout)
+        self.assertFalse((self.project / ".claude" / "harden-state.json").exists())
+
+    def test_cli_remove_with_wrong_explicit_profile_errors(self):
+        completed = self.run_cli("--profile", "strict")
+        self.assertEqual(completed.returncode, 0)
+
+        completed = self.run_cli("--profile", "baseline", "--remove")
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("harden state is for profile 'strict'", completed.stderr)
+
 
 if __name__ == "__main__":
     with contextlib.redirect_stdout(io.StringIO()):

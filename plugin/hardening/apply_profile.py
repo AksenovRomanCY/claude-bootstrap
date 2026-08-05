@@ -47,7 +47,7 @@ class ApplyResult:
     changed: bool
     conflicts: list[str]
     diff: str
-    backup_path: Path | None = None
+    backup_paths: tuple[Path, ...] = ()
 
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
@@ -600,7 +600,11 @@ def apply_profile(
     if not changed or dry_run or check:
         return ApplyResult(changed=changed, conflicts=[], diff=diff)
 
-    backup_path = create_backup(target) if settings_changed and target.exists() else None
+    backup_paths: list[Path] = []
+    if settings_changed and target.exists():
+        backup_paths.append(create_backup(target))
+    if policy_changed and policy_target.exists():
+        backup_paths.append(create_backup(policy_target))
     original_settings = before if target.exists() else None
     original_policy = policy_before if policy_target.exists() else None
     original_state = state_before if state_target.exists() else None
@@ -628,7 +632,7 @@ def apply_profile(
             raise ProfileError(f"failed to write profile files: {exc}; rollback failed: {details}") from exc
         raise ProfileError(f"failed to write profile files: {exc}") from exc
 
-    return ApplyResult(changed=True, conflicts=[], diff=diff, backup_path=backup_path)
+    return ApplyResult(changed=True, conflicts=[], diff=diff, backup_paths=tuple(backup_paths))
 
 
 def remove_list_items(existing: list[Any], managed_items: list[Any]) -> list[Any]:
@@ -702,6 +706,11 @@ def remove_profile(
     if not changed or dry_run or check:
         return ApplyResult(changed=changed, conflicts=[], diff=diff)
 
+    backup_paths: list[Path] = []
+    if settings_changed and target.exists():
+        backup_paths.append(create_backup(target))
+    if remove_policy and policy_target.exists():
+        backup_paths.append(create_backup(policy_target))
     try:
         if settings_changed:
             atomic_write(target, format_json(updated))
@@ -711,7 +720,7 @@ def remove_profile(
     except OSError as exc:
         raise ProfileError(f"failed to remove profile files: {exc}") from exc
 
-    return ApplyResult(changed=True, conflicts=[], diff=diff)
+    return ApplyResult(changed=True, conflicts=[], diff=diff, backup_paths=tuple(backup_paths))
 
 
 def remove_sandbox_overlay(
@@ -764,6 +773,9 @@ def remove_sandbox_overlay(
     if not changed or dry_run or check:
         return ApplyResult(changed=changed, conflicts=[], diff=diff)
 
+    backup_paths: list[Path] = []
+    if settings_changed and target.exists():
+        backup_paths.append(create_backup(target))
     try:
         if settings_changed:
             atomic_write(target, format_json(updated))
@@ -772,12 +784,17 @@ def remove_sandbox_overlay(
     except OSError as exc:
         raise ProfileError(f"failed to remove sandbox overlay: {exc}") from exc
 
-    return ApplyResult(changed=True, conflicts=[], diff=diff)
+    return ApplyResult(changed=True, conflicts=[], diff=diff, backup_paths=tuple(backup_paths))
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Apply a claude-bootstrap hardening profile.")
-    parser.add_argument("--profile", default="baseline", help="Profile name, for example: baseline or strict")
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Profile name, for example: baseline or strict "
+        "(defaults to the applied profile from harden-state.json, then baseline)",
+    )
     parser.add_argument("--sandbox", action="store_true", help="Apply the opt-in Claude Code Bash sandbox overlay")
     parser.add_argument("--dry-run", action="store_true", help="Show changes without writing settings")
     parser.add_argument("--check", action="store_true", help="Exit non-zero if the profile is not applied")
@@ -787,8 +804,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_profile_name(explicit: str | None, project_root: Path, *, from_state: bool) -> str:
+    if explicit is not None:
+        return explicit
+    if from_state:
+        try:
+            applied = load_state(project_root).get("appliedProfile")
+        except ProfileError:
+            applied = None
+        if isinstance(applied, str) and applied:
+            return applied
+    return "baseline"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.profile = resolve_profile_name(
+        args.profile,
+        Path.cwd(),
+        from_state=args.remove or args.check,
+    )
 
     try:
         if args.remove and args.remove_sandbox:
@@ -869,8 +904,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             suffix = " with sandbox overlay" if args.sandbox else ""
             print(f"Applied profile '{args.profile}'{suffix}.")
-        if result.backup_path is not None:
-            print(f"Backup: {result.backup_path}")
+        for backup_path in result.backup_paths:
+            print(f"Backup: {backup_path}")
     else:
         print("No changes.")
     return 0
