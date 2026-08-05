@@ -335,7 +335,13 @@ echo ""
 
 if should_install "hooks" && [[ -f "$HOOKS_FILE" ]]; then
   SETTINGS_CANDIDATE=$(mktemp)
-  build_settings_candidate "$SETTINGS_CANDIDATE"
+  if ! build_settings_candidate "$SETTINGS_CANDIDATE" 2>/dev/null; then
+    echo "Error: could not read $SETTINGS_FILE as JSON." >&2
+    echo "Claude Code accepts comments and trailing commas there, but this installer needs strict JSON." >&2
+    echo "Remove any // comments and trailing commas, or move the file aside, then run install.sh again." >&2
+    rm -f "$SETTINGS_CANDIDATE"
+    exit 1
+  fi
   SETTINGS_LEGACY_COUNT=$(settings_legacy_count)
   SETTINGS_CUSTOM_COUNT=$(settings_custom_count)
   if [[ -f "$SETTINGS_FILE" ]]; then

@@ -205,6 +205,34 @@ assert_file "$PROJECT_DIR/.claude/settings.json" "uninstall leaves project setti
 assert_file "$PROJECT_DIR/.claude/security-policy.json" "uninstall leaves project security policy alone"
 assert_file "$PROJECT_DIR/.claude/rules/custom.md" "uninstall leaves project rules alone"
 
+# Claude Code reads settings.json with comments and trailing commas; jq does not.
+# The installer must say so instead of aborting mid-run on a bare jq parse error.
+HOME_JSONC="$TMP_ROOT/home-jsonc"
+mkdir -p "$HOME_JSONC/.claude"
+cat > "$HOME_JSONC/.claude/settings.json" <<'JSON'
+{
+  // Claude Code tolerates this
+  "model": "opus",
+}
+JSON
+
+set +e
+HOME="$HOME_JSONC" bash "$SCRIPT_DIR/install.sh" --dry-run > "$TMP_ROOT/jsonc-install.log" 2> "$TMP_ROOT/jsonc-install.err"
+jsonc_status=$?
+set -e
+
+if [[ $jsonc_status -ne 0 ]]; then
+  pass "install fails cleanly on JSONC settings"
+else
+  fail "install should fail on JSONC settings"
+fi
+
+if grep -q "could not read" "$TMP_ROOT/jsonc-install.err" && grep -q "settings.json" "$TMP_ROOT/jsonc-install.err"; then
+  pass "install names the unreadable settings file"
+else
+  fail "install should name the unreadable settings file"
+fi
+
 echo ""
 echo "=== Results: $PASSED passed, $FAILED failed ==="
 
