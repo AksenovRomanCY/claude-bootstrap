@@ -43,9 +43,9 @@ Default: `/harden` is the same as `/harden --baseline`.
    - Run every project-modifying command from the resolved project root
 
 3. **Find installed assets**
-   - Prefer plugin assets when `$CLAUDE_PLUGIN_DIR` is set:
-     - `$CLAUDE_PLUGIN_DIR/hardening/apply_profile.py`
-     - `$CLAUDE_PLUGIN_DIR/rules/common/destructive-operations.md`
+   - Prefer plugin assets when `$CLAUDE_PLUGIN_ROOT` (or legacy `$CLAUDE_PLUGIN_DIR`) is set:
+     - `${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hardening/apply_profile.py`
+     - `${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/rules/common/destructive-operations.md`
    - Otherwise use manual install assets:
      - `~/.claude/hardening/apply_profile.py`
      - `~/.claude/bootstrap-rules/common/destructive-operations.md`

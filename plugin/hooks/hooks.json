@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/command_guard.py\"",
             "timeout": 30
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/command_guard.py\"",
             "timeout": 30
           }
         ]
@@ -28,12 +28,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/command_guard.py\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash $CLAUDE_PLUGIN_DIR/hooks/scripts/remind-compact.sh",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/remind-compact.sh\"",
             "timeout": 5
           }
         ]

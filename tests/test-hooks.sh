@@ -53,7 +53,7 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   fi
 
   if [[ "$(basename "$config")" == "hooks.json" ]]; then
-    expected_command='python3 "$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py"'
+    expected_command='python3 "${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/command_guard.py"'
   else
     expected_command='python3 ~/.claude/hooks/scripts/command_guard.py'
   fi
@@ -138,10 +138,19 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   fi
 done
 
+# Bare $CLAUDE_PLUGIN_DIR (without the ${CLAUDE_PLUGIN_ROOT:-...} fallback) is a
+# fail-closed path: if the variable is unset, python3 exits 2 and PreToolUse denies.
+if grep -q 'CLAUDE_PLUGIN_DIR/' "$PLUGIN_HOOKS_JSON"; then
+  fail "hooks.json should not use bare \$CLAUDE_PLUGIN_DIR without CLAUDE_PLUGIN_ROOT fallback"
+else
+  pass "hooks.json has no bare \$CLAUDE_PLUGIN_DIR usage"
+fi
+
 echo ""
 
 # --------------------------------------------------
 echo "command_guard.py"
+
 # --------------------------------------------------
 
 INPUT='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m test"}}'

@@ -49,7 +49,7 @@ assert_contains "$SKILL" "/harden --remove-sandbox" "skill documents remove-sand
 assert_contains "$SKILL" "Default: \`/harden\` is the same as \`/harden --baseline\`" "skill documents default behavior"
 assert_contains "$SKILL" "PROFILE=strict" "skill maps strict profile"
 assert_contains "$SKILL" "SANDBOX_FLAG=--sandbox" "skill maps sandbox flag"
-assert_contains "$SKILL" "\$CLAUDE_PLUGIN_DIR/hardening/apply_profile.py" "skill supports plugin hardening assets"
+assert_contains "$SKILL" "\${CLAUDE_PLUGIN_ROOT:-\$CLAUDE_PLUGIN_DIR}/hardening/apply_profile.py" "skill supports plugin hardening assets"
 assert_contains "$SKILL" ".claude/hardening/apply_profile.py" "skill supports manual hardening assets"
 assert_contains "$SKILL" "--profile \"\$PROFILE\" \$SANDBOX_FLAG --dry-run" "skill previews selected profile with apply_profile dry-run"
 assert_contains "$SKILL" "--profile \"\$PROFILE\" \$SANDBOX_FLAG --check" "skill checks selected profile drift with apply_profile"
