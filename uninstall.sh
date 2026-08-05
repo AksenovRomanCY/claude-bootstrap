@@ -206,9 +206,16 @@ if [[ "$SETTINGS_WILL_CHANGE" == true ]]; then
   echo "[OK] Hooks removed from settings.json"
 fi
 
+# --- Phase 3b: Remove components retired in 1.4.0 (older installs) ---
+for retired in agents/code-reviewer.md agents/security-reviewer.md \
+               agents/planner.md agents/refactor.md \
+               skills/explain skills/fix-build skills/init; do
+  rm -rf "${TARGET:?}/$retired" 2>/dev/null || true
+done
+
 # --- Phase 4: Remove empty directories ---
-for dir in skills/commit skills/pr skills/verify skills/explain skills/fix-build \
-           skills/init skills/test skills/changelog skills/deps-check skills/doctor \
+for dir in skills/commit skills/pr skills/verify skills/bootstrap-init \
+           skills/test skills/changelog skills/deps-check skills/doctor \
            skills/bootstrap skills/harden skills hooks/scripts hooks/guard hooks agents hardening \
            bootstrap-rules/common bootstrap-rules/typescript \
            bootstrap-rules/python bootstrap-rules/golang bootstrap-rules \

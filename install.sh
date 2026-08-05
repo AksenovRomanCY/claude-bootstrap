@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # claude-bootstrap installer
-# Installs skills, agents, hooks to ~/.claude/ (global)
+# Installs skills, hooks, rules, hardening to ~/.claude/ (global)
 # Rules are stored in ~/.claude/bootstrap-rules/ as a library
 # Use /bootstrap in a project to copy relevant rules to .claude/rules/
 
@@ -13,12 +13,24 @@ TARGET="$HOME/.claude"
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 INSTALLED_VERSION_FILE="$TARGET/.bootstrap-version"
 
+# Components retired in 1.4.0 — superseded by built-in Claude Code features.
+# Listed here so an upgrade prunes stale copies from a previous install.
+RETIRED_PATHS=(
+  "agents/code-reviewer.md"
+  "agents/security-reviewer.md"
+  "agents/planner.md"
+  "agents/refactor.md"
+  "skills/explain"
+  "skills/fix-build"
+  "skills/init"
+)
+RETIRED_DIRS=("agents")
+
 # --- Defaults ---
 DRY_RUN=false
 FORCE=false
 SKIP_HOOKS=false
 SKIP_SKILLS=false
-SKIP_AGENTS=false
 SKIP_RULES=false
 SKIP_HARDENING=false
 
@@ -29,19 +41,17 @@ Usage: install.sh [OPTIONS]
 
 Installs to ~/.claude/:
   skills/              Skills (/commit, /pr, /verify, /bootstrap, etc.)
-  agents/              Agents (/plan, /review, /security, /refactor)
   hooks/scripts/       Hook enforcement scripts
   hooks/guard/         Python hook guard modules
   hardening/           Hardening profiles, policies, and apply helpers
   bootstrap-rules/     Rules library (used by /bootstrap per-project)
-  bootstrap-templates/ CLAUDE.md templates (used by /init)
+  bootstrap-templates/ CLAUDE.md templates (used by /bootstrap-init)
 
 Options:
   --dry-run        Preview changes without installing
   --force          Skip confirmation prompt
   --skip-hooks     Don't install hook scripts or merge settings.json
   --skip-skills    Don't install skills
-  --skip-agents    Don't install agents
   --skip-rules     Don't install rules library
   --skip-hardening Don't install hardening profiles and helpers
   --help           Show this help message
@@ -64,7 +74,6 @@ while [[ $# -gt 0 ]]; do
     --force)       FORCE=true ;;
     --skip-hooks)  SKIP_HOOKS=true ;;
     --skip-skills) SKIP_SKILLS=true ;;
-    --skip-agents) SKIP_AGENTS=true ;;
     --skip-rules)  SKIP_RULES=true ;;
     --skip-hardening) SKIP_HARDENING=true ;;
     --help)        show_help; exit 0 ;;
@@ -92,7 +101,6 @@ should_install() {
   case $component in
     hooks)  [[ "$SKIP_HOOKS" == false ]] ;;
     skills) [[ "$SKIP_SKILLS" == false ]] ;;
-    agents) [[ "$SKIP_AGENTS" == false ]] ;;
     rules)  [[ "$SKIP_RULES" == false ]] ;;
     hardening) [[ "$SKIP_HARDENING" == false ]] ;;
     *)      return 0 ;;
@@ -304,13 +312,18 @@ settings_fingerprint_count() {
 
 echo "Changes:"
 
-should_install "agents" && diff_component "$SOURCE/agents" "$TARGET/agents"
 should_install "hooks" && diff_component "$SOURCE/hooks/scripts" "$TARGET/hooks/scripts"
 should_install "hooks" && diff_component "$SOURCE/hooks/guard" "$TARGET/hooks/guard"
 should_install "hardening" && diff_component "$SOURCE/hardening" "$TARGET/hardening"
 should_install "skills" && diff_component "$SOURCE/skills" "$TARGET/skills"
 should_install "rules" && diff_component "$SOURCE/rules" "$TARGET/bootstrap-rules"
 diff_component "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates"
+
+for retired in "${RETIRED_PATHS[@]}"; do
+  if [[ -e "$TARGET/$retired" ]]; then
+    echo "  [RETIRED]    $retired"
+  fi
+done
 
 if [[ $count_new -eq 0 && $count_modified -eq 0 ]]; then
   echo "  (no changes)"
@@ -407,7 +420,6 @@ copy_dir() {
   fi
 }
 
-should_install "agents" && copy_dir "$SOURCE/agents" "$TARGET/agents" "agents"
 if should_install "hooks"; then
   copy_dir "$SOURCE/hooks/scripts" "$TARGET/hooks/scripts" "hooks/scripts"
   copy_dir "$SOURCE/hooks/guard" "$TARGET/hooks/guard" "hooks/guard"
@@ -417,6 +429,21 @@ should_install "hardening" && copy_dir "$SOURCE/hardening" "$TARGET/hardening" "
 should_install "skills" && copy_dir "$SOURCE/skills" "$TARGET/skills" "skills"
 should_install "rules" && copy_dir "$SOURCE/rules" "$TARGET/bootstrap-rules" "bootstrap-rules (library)"
 copy_dir "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates" "bootstrap-templates"
+
+# --- Prune retired components ---
+retired_removed=0
+for retired in "${RETIRED_PATHS[@]}"; do
+  if [[ -e "$TARGET/$retired" ]]; then
+    rm -rf "$TARGET/$retired"
+    retired_removed=$((retired_removed + 1))
+  fi
+done
+for dir in "${RETIRED_DIRS[@]}"; do
+  rmdir "$TARGET/$dir" 2>/dev/null || true
+done
+if [[ $retired_removed -gt 0 ]]; then
+  echo "[OK] $retired_removed retired component(s) removed"
+fi
 
 # --- Merge hooks into settings.json ---
 if should_install "hooks" && [[ -f "$HOOKS_FILE" ]]; then
@@ -444,4 +471,4 @@ fi
 echo ""
 echo "Done. Next steps:"
 echo "  1. Open any project and run /bootstrap to set up rules"
-echo "  2. Run /init to generate CLAUDE.md"
+echo "  2. Run /bootstrap-init to generate CLAUDE.md"
