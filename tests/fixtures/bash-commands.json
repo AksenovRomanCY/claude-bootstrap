@@ -873,5 +873,78 @@
       }
     ],
     "unsupported": []
+  },
+  {
+    "name": "herestring is not a heredoc",
+    "command": "cat <<< herestring",
+    "segments": [
+      {
+        "words": [
+          "cat",
+          "herestring"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "herestring"
+        ]
+      }
+    ],
+    "unsupported": [
+      "herestring"
+    ]
+  },
+  {
+    "name": "herestring without a space",
+    "command": "cat <<<word",
+    "segments": [
+      {
+        "words": [
+          "cat",
+          "word"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "herestring"
+        ]
+      }
+    ],
+    "unsupported": [
+      "herestring"
+    ]
+  },
+  {
+    "name": "two heredocs on one command",
+    "command": "cat <<EOF1 <<EOF2\nfirst\nEOF1\nsecond\nEOF2\ngit status",
+    "separators": [
+      "\n"
+    ],
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      },
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      }
+    ],
+    "unsupported": [
+      "heredoc"
+    ]
   }
 ]

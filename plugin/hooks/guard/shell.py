@@ -173,151 +173,199 @@ def skip_heredoc_bodies(
     return index
 
 
-def tokenize(command: str) -> TokenizeResult:
-    tokens: list[Token] = []
-    unsupported: list[str] = []
-    token = ""
-    token_quoted = False
-    has_token = False
-    quote = ""
-    escaped = False
-    index = 0
-    pending_heredocs: list[tuple[str, bool]] = []
+class Tokenizer:
+    """Character-level lexer for the subset of shell the guard models.
 
-    def flush() -> None:
-        nonlocal token, token_quoted, has_token
-        if has_token:
-            tokens.append(Token(text=token, quoted=token_quoted))
-        token = ""
-        token_quoted = False
-        has_token = False
+    Each method consumes one construct and leaves the cursor on the character
+    after it, so quoting and escaping are local to the method that handles them
+    rather than flags carried across the whole scan. Anything the guard cannot
+    model faithfully is recorded in `unsupported`, which turns into a permission
+    prompt instead of a silent mis-parse.
+    """
 
-    def append(text: str, *, quoted: bool = False) -> None:
-        nonlocal token, token_quoted, has_token
-        token += text
-        has_token = True
+    BLANKS = {" ", "\t", "\r"}
+
+    def __init__(self, command: str) -> None:
+        self.command = command
+        self.index = 0
+        self.tokens: list[Token] = []
+        self.unsupported: list[str] = []
+        self.pending_heredocs: list[tuple[str, bool]] = []
+        self._text = ""
+        self._quoted = False
+        self._started = False
+
+    # -- cursor ----------------------------------------------------------
+
+    @property
+    def at_end(self) -> bool:
+        return self.index >= len(self.command)
+
+    def peek(self, offset: int = 0) -> str:
+        position = self.index + offset
+        return self.command[position] if position < len(self.command) else ""
+
+    def take(self) -> str:
+        char = self.command[self.index]
+        self.index += 1
+        return char
+
+    def looking_at(self, text: str) -> bool:
+        return self.command.startswith(text, self.index)
+
+    # -- token accumulation ----------------------------------------------
+
+    def start_token(self) -> None:
+        """Mark a token as begun, so `''` produces an empty word rather than nothing."""
+        self._started = True
+
+    def add(self, text: str, *, quoted: bool = False) -> None:
+        self._text += text
+        self._started = True
         if quoted:
-            token_quoted = True
+            self._quoted = True
 
-    while index < len(command):
-        char = command[index]
+    def flush(self) -> None:
+        if self._started:
+            self.tokens.append(Token(text=self._text, quoted=self._quoted))
+        self._text = ""
+        self._quoted = False
+        self._started = False
 
-        if escaped:
-            append(char, quoted=True)
-            escaped = False
-            index += 1
-            continue
+    def emit(self, text: str) -> None:
+        self.flush()
+        self.tokens.append(Token(text=text))
 
-        if quote == "'":
-            if char == "'":
-                quote = ""
-                has_token = True
-            else:
-                append(char, quoted=True)
-            index += 1
-            continue
+    def mark(self, construct: str) -> None:
+        add_unsupported(self.unsupported, construct)
 
-        if quote == '"':
-            if char == '"':
-                quote = ""
-                has_token = True
-                index += 1
-                continue
+    # -- constructs ------------------------------------------------------
+
+    def run(self) -> TokenizeResult:
+        while not self.at_end:
+            char = self.peek()
             if char == "\\":
-                index += 1
-                if index >= len(command):
-                    append("\\", quoted=True)
-                    continue
-                if command[index] == "\n":
-                    index += 1
-                    continue
-                append(command[index], quoted=True)
-                index += 1
-                continue
-            if char == "$" and index + 1 < len(command) and command[index + 1] == "(":
-                add_unsupported(unsupported, "command substitution")
-            elif char == "`":
-                add_unsupported(unsupported, "backtick command substitution")
-            append(char, quoted=True)
-            index += 1
-            continue
+                self.read_escape()
+            elif char == "'":
+                self.read_single_quoted()
+            elif char == '"':
+                self.read_double_quoted()
+            elif self.looking_at("<<<"):
+                self.read_herestring_redirection()
+            elif self.looking_at("<<"):
+                self.read_heredoc_redirection()
+            elif char in self.BLANKS:
+                self.flush()
+                self.index += 1
+            elif char == "\n":
+                self.read_newline()
+            elif (operator := match_operator(self.command, self.index)) is not None:
+                self.read_operator(operator)
+            else:
+                self.read_word_character()
 
-        if char == "\\":
-            if index + 1 < len(command) and command[index + 1] == "\n":
-                index += 2
-                continue
-            escaped = True
-            index += 1
-            continue
+        if self.pending_heredocs:
+            self.mark("unterminated heredoc")
+        self.flush()
+        return TokenizeResult(tokens=self.tokens, unsupported=self.unsupported)
 
-        if char in {"'", '"'}:
-            quote = char
-            has_token = True
-            index += 1
-            continue
-
-        if char == "$" and index + 1 < len(command) and command[index + 1] == "(":
-            add_unsupported(unsupported, "command substitution")
-        elif char == "`":
-            add_unsupported(unsupported, "backtick command substitution")
-
-        if command.startswith("<<", index) and not command.startswith("<<<", index):
-            add_unsupported(unsupported, "heredoc")
-            index += 2
-            strip_tabs = index < len(command) and command[index] == "-"
-            if strip_tabs:
-                index += 1
-            while index < len(command) and command[index] in {" ", "\t"}:
-                index += 1
-            delimiter, index = read_heredoc_delimiter(command, index)
-            if delimiter:
-                pending_heredocs.append((delimiter, strip_tabs))
-            continue
-
-        if char in {" ", "\t", "\r"}:
-            flush()
-            index += 1
-            continue
-
+    def read_escape(self) -> None:
+        self.index += 1
+        if self.at_end:
+            self.mark("trailing escape")
+            self.add("\\")
+            return
+        char = self.take()
         if char == "\n":
-            flush()
-            tokens.append(Token(text="\n"))
-            index += 1
-            if pending_heredocs:
-                index = skip_heredoc_bodies(command, index, pending_heredocs, unsupported)
-                pending_heredocs = []
-            continue
+            return  # line continuation: the newline is not a separator
+        self.add(char, quoted=True)
 
-        operator = match_operator(command, index)
-        if operator is not None:
-            if operator in CASE_OPERATORS:
-                add_unsupported(unsupported, "unsupported control operator")
-            flush()
-            tokens.append(Token(text=CASE_OPERATORS.get(operator, operator)))
-            index += len(operator)
-            continue
+    def read_single_quoted(self) -> None:
+        self.index += 1
+        self.start_token()
+        while not self.at_end:
+            char = self.take()
+            if char == "'":
+                return
+            self.add(char, quoted=True)
+        self.mark("unterminated quote")
 
-        if char == "(" and not (index > 0 and command[index - 1] in {"$", "<", ">"}):
-            add_unsupported(unsupported, "subshell or grouping")
-        if char == ")" and not any(
-            construct in unsupported for construct in {"command substitution", "process substitution"}
-        ):
-            add_unsupported(unsupported, "subshell or grouping")
-        if char in {"<", ">"} and index + 1 < len(command) and command[index + 1] == "(":
-            add_unsupported(unsupported, "process substitution")
+    def read_double_quoted(self) -> None:
+        self.index += 1
+        self.start_token()
+        while not self.at_end:
+            char = self.peek()
+            if char == '"':
+                self.index += 1
+                return
+            if char == "\\":
+                self.index += 1
+                if self.at_end:
+                    self.add("\\", quoted=True)
+                    break
+                escaped = self.take()
+                if escaped != "\n":  # line continuation inside quotes
+                    self.add(escaped, quoted=True)
+                continue
+            if char == "$" and self.peek(1) == "(":
+                self.mark("command substitution")
+            elif char == "`":
+                self.mark("backtick command substitution")
+            self.add(self.take(), quoted=True)
+        self.mark("unterminated quote")
 
-        append(char)
-        index += 1
+    def read_herestring_redirection(self) -> None:
+        """`<<<` feeds a word to stdin. Consuming it keeps the word from being read
+        as a heredoc delimiter, which left the command looking unterminated."""
+        self.mark("herestring")
+        self.index += 3
 
-    if escaped:
-        add_unsupported(unsupported, "trailing escape")
-        append("\\")
-    if quote:
-        add_unsupported(unsupported, "unterminated quote")
-    if pending_heredocs:
-        add_unsupported(unsupported, "unterminated heredoc")
-    flush()
-    return TokenizeResult(tokens=tokens, unsupported=unsupported)
+    def read_heredoc_redirection(self) -> None:
+        self.mark("heredoc")
+        self.index += 2
+        strip_tabs = self.peek() == "-"
+        if strip_tabs:
+            self.index += 1
+        while self.peek() in {" ", "\t"} and not self.at_end:
+            self.index += 1
+        delimiter, self.index = read_heredoc_delimiter(self.command, self.index)
+        if delimiter:
+            self.pending_heredocs.append((delimiter, strip_tabs))
+
+    def read_newline(self) -> None:
+        self.emit("\n")
+        self.index += 1
+        if self.pending_heredocs:
+            # The body is data, not commands: documenting `rm -rf /` must not deny.
+            self.index = skip_heredoc_bodies(self.command, self.index, self.pending_heredocs, self.unsupported)
+            self.pending_heredocs = []
+
+    def read_operator(self, operator: str) -> None:
+        if operator in CASE_OPERATORS:
+            self.mark("unsupported control operator")
+        self.emit(CASE_OPERATORS.get(operator, operator))
+        self.index += len(operator)
+
+    def read_word_character(self) -> None:
+        """Consume one ordinary character, noting constructs the guard cannot model."""
+        char = self.peek()
+        if char == "$" and self.peek(1) == "(":
+            self.mark("command substitution")
+        elif char == "`":
+            self.mark("backtick command substitution")
+
+        if char == "(" and self.command[self.index - 1 : self.index] not in {"$", "<", ">"}:
+            self.mark("subshell or grouping")
+        if char == ")" and not {"command substitution", "process substitution"}.intersection(self.unsupported):
+            self.mark("subshell or grouping")
+        if char in {"<", ">"} and self.peek(1) == "(":
+            self.mark("process substitution")
+
+        self.add(self.take())
+
+
+def tokenize(command: str) -> TokenizeResult:
+    return Tokenizer(command).run()
 
 
 def is_duration(word: str) -> bool:
