@@ -65,6 +65,7 @@ if grep -Eq -- 'APPLY_PROFILE" --remove$' "$SKILL"; then
 else
   fail "skill applies remove mode"
 fi
+# shellcheck disable=SC2016 # Sentinel checks the literal text of the skill instructions.
 if grep -Fq -- '--profile "$PROFILE" --remove' "$SKILL"; then
   fail "skill remove mode resolves the profile from harden state"
 else
