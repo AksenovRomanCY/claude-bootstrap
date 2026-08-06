@@ -66,6 +66,9 @@ else
 fi
 assert_jq "$HOME_ONE/.claude/settings.json" '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | select(.command == "python3 ~/.claude/hooks/scripts/command_guard.py" and ((.if // "") == ""))] | length == 1' "fresh install has one unconditional Bash command_guard hook"
 assert_jq "$HOME_ONE/.claude/settings.json" '[.hooks.PostToolUse[]? | select(.matcher == "Write|Edit") | .hooks[]? | select(.command | contains("remind-compact.sh"))] | length == 1' "fresh install keeps remind-compact hook"
+# A group without a matcher goes through the same merge program as the others.
+assert_jq "$HOME_ONE/.claude/settings.json" '[.hooks.SessionStart[]?.hooks[]? | select(.command | contains("check-guard-runtime.sh"))] | length == 1' "fresh install wires the guard runtime check"
+assert_file "$HOME_ONE/.claude/hooks/scripts/check-guard-runtime.sh" "fresh install copies the guard runtime check"
 
 echo ""
 

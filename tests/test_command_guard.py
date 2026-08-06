@@ -139,7 +139,15 @@ class CommandGuardTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.kind, DecisionKind.DENY)
-        self.assertEqual(decision.formatted_reason(), "[DENY] deny")
+        self.assertEqual(decision.rule_id, "DENY")
+        # The strictest decision leads, but the weaker findings are still reported:
+        # a write can be denied for one reason and worth mentioning for another.
+        self.assertEqual(decision.formatted_reason(), "[DENY] deny [WARN] warning [ASK] ask")
+
+    def test_decision_combine_keeps_one_reason_when_they_agree(self):
+        decision = combine([Decision.ask("RULE", "same"), Decision.ask("RULE", "same"), Decision.none()])
+
+        self.assertEqual(decision.formatted_reason(), "[RULE] same")
 
     def test_ask_output_shape(self):
         output = command_guard.decision_output(Decision.ask("RULE-ID", "Confirmation is required."))
@@ -589,6 +597,26 @@ class CommandGuardTests(unittest.TestCase):
         hook_output = output["hookSpecificOutput"]
         self.assertEqual(hook_output["permissionDecision"], "ask")
         self.assertIn("[UNKNOWN-ENVIRONMENT]", hook_output["permissionDecisionReason"])
+
+    def test_database_decision_fixtures(self):
+        fixtures = load_fixtures("database-commands.json")
+
+        for fixture in fixtures:
+            with self.subTest(fixture["name"]):
+                with prepared_infrastructure_workspace(fixture) as cwd:
+                    completed = self.run_guard(bash_payload(fixture["command"], cwd), env=env_without_path())
+
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(completed.stderr, "")
+                expected_decision = fixture["decision"]
+
+                if expected_decision == "none":
+                    self.assertEqual(completed.stdout, "")
+                    continue
+
+                hook_output = json.loads(completed.stdout)["hookSpecificOutput"]
+                self.assertEqual(hook_output["permissionDecision"], expected_decision)
+                self.assertIn(f"[{fixture['rule']}]", hook_output["permissionDecisionReason"])
 
     def test_strict_destructive_database_command_denies(self):
         with strict_policy_workspace() as cwd:

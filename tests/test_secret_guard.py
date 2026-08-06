@@ -78,6 +78,13 @@ class SecretGuardTests(unittest.TestCase):
                     continue
                 self.assertTrue(any(finding.rule_id == fixture["rule"] for finding in findings))
 
+                # The rule alone says nothing about severity: a deny silently
+                # downgraded to a warning would still match the id.
+                target = self.project / "src" / "fixture.py"
+                decision = evaluate(write_payload(target, fixture["content"], self.project))
+                self.assertEqual(decision.kind, DecisionKind(fixture["decision"]))
+                self.assertIn(f"[{fixture['rule']}]", decision.formatted_reason())
+
     def test_tracked_private_key_is_denied_before_write(self):
         completed = self.run_guard(write_payload(self.tracked_file, PRIVATE_KEY, self.project))
         hook_output = self.hook_output(completed)

@@ -1105,6 +1105,48 @@
     "unsupported": []
   },
   {
+    "name": "inline interpreter code is reported",
+    "command": "python3 -c 'import shutil; shutil.rmtree(\"/\")'",
+    "segments": [
+      {
+        "words": [
+          "python3",
+          "-c",
+          "import shutil; shutil.rmtree(\"/\")"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "inline interpreter code"
+        ]
+      }
+    ],
+    "unsupported": [
+      "inline interpreter code"
+    ]
+  },
+  {
+    "name": "node inline code is reported",
+    "command": "node -e \"require('fs').rmSync('/', {recursive: true})\"",
+    "segments": [
+      {
+        "words": [
+          "node",
+          "-e",
+          "require('fs').rmSync('/', {recursive: true})"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "inline interpreter code"
+        ]
+      }
+    ],
+    "unsupported": [
+      "inline interpreter code"
+    ]
+  },
+  {
     "name": "process substitution is still reported, not read as a redirection",
     "command": "diff <(git show HEAD:a) <(cat b)",
     "segments": [
