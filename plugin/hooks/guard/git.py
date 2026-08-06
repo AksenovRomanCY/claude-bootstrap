@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from .context import HookContext
@@ -74,14 +75,47 @@ class GitInvocation:
     subcommand: str
     args: list[str]
     config_overrides: tuple[str, ...] = ()
+    # `git -C dir status` runs in another repository, which may be on another
+    # branch and dirty in its own way.
+    directories: tuple[str, ...] = ()
+
+    def working_directory(self, cwd: Path) -> Path:
+        """Where git will actually run: each -C is relative to the one before it."""
+        directory = cwd
+        for target in self.directories:
+            expanded = Path(target).expanduser()
+            directory = expanded if expanded.is_absolute() else directory / expanded
+        return directory
 
 
-@dataclass(frozen=True)
 class GitContext:
-    project_root: Path
-    current_branch: str | None
-    dirty: bool | None
-    protected_branches: list[str]
+    """Repository facts, each read from git only if a rule asks for it.
+
+    Most git commands are judged without any of them — `git log` matches no rule
+    at all — so loading three subprocesses up front put them on the critical path
+    of every git tool call.
+    """
+
+    def __init__(self, cwd: Path) -> None:
+        self.cwd = cwd
+
+    @cached_property
+    def project_root(self) -> Path:
+        toplevel = command_output(self.cwd, ["git", "rev-parse", "--show-toplevel"])
+        return Path(toplevel).resolve() if toplevel else self.cwd.resolve()
+
+    @cached_property
+    def current_branch(self) -> str | None:
+        return command_output(self.cwd, ["git", "branch", "--show-current"]) or None
+
+    @cached_property
+    def dirty(self) -> bool | None:
+        status = command_output(self.cwd, ["git", "status", "--porcelain"])
+        return None if status is None else bool(status.strip())
+
+    @cached_property
+    def protected_branches(self) -> list[str]:
+        return load_protected_branches(self.project_root)
 
 
 def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
@@ -89,9 +123,12 @@ def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
     if not invocations:
         return []
 
-    git_context = load_git_context(context.cwd)
+    # One context per directory, so repeating `-C` in a chain costs nothing.
+    contexts: dict[Path, GitContext] = {}
     decisions: list[Decision] = []
     for invocation in invocations:
+        directory = invocation.working_directory(context.cwd)
+        git_context = contexts.setdefault(directory, GitContext(directory))
         decisions.extend(evaluate_invocation(invocation, git_context))
     return decisions
 
@@ -103,13 +140,17 @@ def parse_git_invocation(segment: CommandSegment) -> GitInvocation | None:
 
     index = 1
     config_overrides: list[str] = []
+    directories: list[str] = []
     while index < len(words):
         token = words[index]
         if token == "--":
             return None
         if token in GIT_GLOBAL_OPTIONS_WITH_VALUES:
-            if token in GIT_CONFIG_VALUE_OPTIONS and index + 1 < len(words):
-                config_overrides.append(words[index + 1])
+            if index + 1 < len(words):
+                if token in GIT_CONFIG_VALUE_OPTIONS:
+                    config_overrides.append(words[index + 1])
+                elif token == "-C":
+                    directories.append(words[index + 1])
             index += 2
             continue
         if any(token.startswith(f"{option}=") for option in GIT_GLOBAL_OPTIONS_WITH_VALUES if option.startswith("--")):
@@ -125,24 +166,10 @@ def parse_git_invocation(segment: CommandSegment) -> GitInvocation | None:
             subcommand=token,
             args=words[index + 1 :],
             config_overrides=tuple(config_overrides),
+            directories=tuple(directories),
         )
 
     return None
-
-
-def load_git_context(cwd: Path) -> GitContext:
-    project_root = command_output(cwd, ["git", "rev-parse", "--show-toplevel"])
-    root = Path(project_root).resolve() if project_root else cwd.resolve()
-    current_branch = command_output(cwd, ["git", "branch", "--show-current"]) or None
-    status = command_output(cwd, ["git", "status", "--porcelain"])
-    dirty = None if status is None else bool(status.strip())
-
-    return GitContext(
-        project_root=root,
-        current_branch=current_branch,
-        dirty=dirty,
-        protected_branches=load_protected_branches(root),
-    )
 
 
 def load_protected_branches(project_root: Path) -> list[str]:

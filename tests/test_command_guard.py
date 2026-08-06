@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from helpers import (  # noqa: E402
     ROOT,
     SCRIPTS_DIR,
+    edit_payload,
     env_without_path,
     init_git_repo,
     isolated_env,
@@ -27,7 +28,8 @@ from helpers import write_payload as _write_payload  # noqa: E402
 from guard.context import from_hook_payload  # noqa: E402
 from guard.decisions import Decision, DecisionKind, combine  # noqa: E402
 from guard.filesystem import evaluate as evaluate_filesystem  # noqa: E402
-from guard.git import load_git_context  # noqa: E402
+from guard.git import evaluate as evaluate_git  # noqa: E402
+from guard.git import GitContext  # noqa: E402
 from guard.infrastructure import evaluate as evaluate_infrastructure  # noqa: E402
 from guard.infrastructure import is_production_value  # noqa: E402
 from guard.shell import parse  # noqa: E402
@@ -293,6 +295,32 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(hook_output["permissionDecision"], "ask")
         self.assertIn("[LARGE-FILE]", hook_output["permissionDecisionReason"])
 
+    def test_edit_payload_is_reconstructed_once_for_both_rules(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "config.ts"
+            target.write_text("const key = \"placeholder\"\n", encoding="utf-8")
+            payload = edit_payload(target, "placeholder", "AKIA1234567890ABCDEF", tmpdir)
+
+            with mock.patch("guard.secrets.reconstruct_edit") as secret_reconstruct:
+                with mock.patch("large_file_policy.reconstruct_edit") as large_file_reconstruct:
+                    output = command_guard.run_pre_write_guard(payload)
+
+        self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+        secret_reconstruct.assert_not_called()
+        large_file_reconstruct.assert_not_called()
+
+    def test_edit_payload_that_cannot_be_applied_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "config.ts"
+            target.write_text("const key = \"placeholder\"\n", encoding="utf-8")
+            payload = edit_payload(target, "missing text", "replacement", tmpdir)
+
+            output = command_guard.run_pre_write_guard(payload)
+
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "ask")
+        self.assertIn("[SECRET-EDIT-UNCERTAIN]", hook_output["permissionDecisionReason"])
+
     def test_post_write_payload_runs_warning_guard_without_denial(self):
         completed = self.run_guard(post_write_payload("/tmp/test.ts", 'console.log("debug")'))
 
@@ -379,9 +407,44 @@ class CommandGuardTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
         with mock.patch("guard.process.subprocess.run", side_effect=fake_run):
-            load_git_context(ROOT)
+            context = GitContext(ROOT)
+            self.assertEqual(seen, [], "constructing the context must not run git")
+            _ = (context.project_root, context.current_branch, context.dirty)
 
         self.assertEqual(set(seen), allowed)
+
+    def test_git_context_is_loaded_per_fact_and_cached(self):
+        seen = []
+
+        def fake_run(command, **kwargs):
+            seen.append(tuple(command))
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with mock.patch("guard.process.subprocess.run", side_effect=fake_run):
+            context = GitContext(ROOT)
+            self.assertIsNone(context.current_branch)
+            self.assertIsNone(context.current_branch)
+
+        self.assertEqual(seen, [("git", "branch", "--show-current")])
+
+    def test_read_only_git_commands_run_no_subprocess(self):
+        with mock.patch("guard.process.subprocess.run", side_effect=AssertionError("git log needs no repository facts")):
+            for command in ("git log --oneline", "git status", "git push origin feature"):
+                with self.subTest(command=command):
+                    evaluate_git(from_hook_payload(bash_payload(command)), parse(command))
+
+    def test_git_directory_option_selects_the_repository(self):
+        seen = []
+
+        def fake_run(command, **kwargs):
+            seen.append(kwargs.get("cwd"))
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        command = "git -C repo/inner reset --hard"
+        with mock.patch("guard.process.subprocess.run", side_effect=fake_run):
+            evaluate_git(from_hook_payload(bash_payload(command, ROOT)), parse(command))
+
+        self.assertEqual(seen, [str(ROOT / "repo" / "inner")])
 
     def test_filesystem_decision_fixtures(self):
         fixtures = load_fixtures("filesystem-commands.json")
@@ -430,10 +493,6 @@ class CommandGuardTests(unittest.TestCase):
                 self.assertIn(f"[{fixture['rule']}]", hook_output["permissionDecisionReason"])
 
     def test_infrastructure_context_uses_only_allowed_commands(self):
-        allowed = {
-            ("kubectl", "config", "current-context"),
-            ("terraform", "workspace", "show"),
-        }
         seen = []
 
         def fake_run(command, **kwargs):
@@ -446,7 +505,45 @@ class CommandGuardTests(unittest.TestCase):
                 for command in commands:
                     evaluate_infrastructure(from_hook_payload(bash_payload(command)), parse(command))
 
-        self.assertEqual(set(seen), allowed)
+        # terraform is read from .terraform/environment, so the only subprocess
+        # left is the local kubectl context lookup.
+        self.assertEqual(set(seen), {("kubectl", "config", "current-context")})
+
+    def test_terraform_workspace_is_read_from_the_state_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir)
+            (project / ".git").mkdir()
+            (project / ".terraform").mkdir()
+            (project / ".terraform" / "environment").write_text("production\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch("guard.process.subprocess.run", side_effect=AssertionError("no subprocess allowed")):
+                    decisions = evaluate_infrastructure(
+                        from_hook_payload(bash_payload("terraform apply", project)),
+                        parse("terraform apply"),
+                    )
+
+        self.assertEqual([decision.rule_id for decision in decisions], ["PRODUCTION-DESTRUCTIVE"])
+
+    def test_terraform_workspace_command_runs_only_when_policy_allows_it(self):
+        def fake_run(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, stdout="production\n", stderr="")
+
+        for allowed in (False, True):
+            with self.subTest(allowed=allowed), tempfile.TemporaryDirectory() as tmpdir:
+                project = Path(tmpdir)
+                (project / ".git").mkdir()
+                write_policy(project, {"version": 1, "commandGuard": {"terraformWorkspaceCommand": allowed}})
+
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    with mock.patch("guard.process.subprocess.run", side_effect=fake_run):
+                        decisions = evaluate_infrastructure(
+                            from_hook_payload(bash_payload("terraform apply", project)),
+                            parse("terraform apply"),
+                        )
+
+                rules = [decision.rule_id for decision in decisions]
+                self.assertEqual(rules, ["PRODUCTION-DESTRUCTIVE"] if allowed else ["TERRAFORM-APPLY"])
 
     def test_infrastructure_missing_context_commands_do_not_break_guard(self):
         def missing_command(command, **kwargs):

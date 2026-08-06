@@ -160,6 +160,10 @@
             "high-risk"
           ]
         },
+        "terraformWorkspaceCommand": {
+          "description": "Allow the guard to run `terraform workspace show` when .terraform/environment is missing. Off by default: the command can reach a remote backend from inside a hook.",
+          "type": "boolean"
+        },
         "infrastructureChecks": {
           "description": "Infrastructure command families expected to receive stricter guard review.",
           "type": "array",

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .decisions import Decision, combine, dedupe_by_rule_id
-from .edit_content import EditReconstructionError, reconstruct_edit
+from .edit_content import EditReconstructionError, ReconstructedEdit, reconstruct_edit
 from .paths import find_project_root, path_matches_patterns, relative_to_project, resolve_file_path
 from .policy import load_policy, policy_section, string_list
 from .process import command_succeeds
@@ -89,9 +89,9 @@ class SecretInput:
     baseline_content: str | None = None
 
 
-def evaluate(payload: dict[str, Any]) -> Decision:
+def evaluate(payload: dict[str, Any], reconstructed: ReconstructedEdit | None = None) -> Decision:
     try:
-        secret_input = extract_secret_input(payload)
+        secret_input = extract_secret_input(payload, reconstructed)
     except (OSError, EditReconstructionError) as exc:
         if payload.get("tool_name") != "Edit":
             raise
@@ -133,7 +133,10 @@ def new_findings(content: str, baseline_content: str | None) -> list[SecretFindi
     return [finding for finding in findings if finding.rule_id not in already_present]
 
 
-def extract_secret_input(payload: dict[str, Any]) -> SecretInput | None:
+def extract_secret_input(
+    payload: dict[str, Any],
+    reconstructed: ReconstructedEdit | None = None,
+) -> SecretInput | None:
     if payload.get("hook_event_name") != "PreToolUse":
         return None
 
@@ -158,9 +161,11 @@ def extract_secret_input(payload: dict[str, Any]) -> SecretInput | None:
         if not isinstance(content, str) or not content:
             return None
     else:
-        reconstructed = reconstruct_edit(file_path, tool_input)
-        content = reconstructed.final_content
-        baseline_content = reconstructed.current_content
+        # The caller may have applied the edit already; both rules need the same
+        # result, and reading plus replacing twice is the expensive part.
+        edit = reconstructed if reconstructed is not None else reconstruct_edit(file_path, tool_input)
+        content = edit.final_content
+        baseline_content = edit.current_content
 
     return SecretInput(
         tool_name=tool_name,

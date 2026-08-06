@@ -14,7 +14,7 @@ HOOKS_DIR = SCRIPT_DIR.parent
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-from guard.edit_content import reconstruct_edit  # noqa: E402
+from guard.edit_content import ReconstructedEdit, reconstruct_edit  # noqa: E402
 from guard.hook_io import run_hook  # noqa: E402
 from guard.paths import (  # noqa: E402
     find_project_root,
@@ -93,7 +93,7 @@ def output_ask(reason: str) -> dict[str, object]:
     }
 
 
-def run(payload: dict[str, Any]) -> dict[str, object] | None:
+def run(payload: dict[str, Any], reconstructed: ReconstructedEdit | None = None) -> dict[str, object] | None:
     if payload.get("hook_event_name") != "PreToolUse":
         return None
 
@@ -125,7 +125,7 @@ def run(payload: dict[str, Any]) -> dict[str, object] | None:
                 return output_warning("Unable to evaluate file size because Write content is missing.")
             state = write_file_state(file_path, content)
         else:
-            state = edit_file_state(file_path, tool_input)
+            state = edit_file_state(file_path, tool_input, reconstructed)
     except OSError as exc:
         return output_warning(f"Unable to evaluate file size: {exc}.")
     except ValueError as exc:
@@ -161,12 +161,18 @@ def write_file_state(file_path: Path, content: str) -> FileState:
     )
 
 
-def edit_file_state(file_path: Path, tool_input: dict[str, Any]) -> FileState:
-    reconstructed = reconstruct_edit(file_path, tool_input)
+def edit_file_state(
+    file_path: Path,
+    tool_input: dict[str, Any],
+    reconstructed: ReconstructedEdit | None = None,
+) -> FileState:
+    # Reuse the caller's reconstruction when there is one: the secrets rule needs
+    # the same result, and applying the edit twice is the expensive part.
+    edit = reconstructed if reconstructed is not None else reconstruct_edit(file_path, tool_input)
     return FileState(
         exists=True,
-        current_lines=count_content_lines(reconstructed.current_content),
-        final_lines=count_content_lines(reconstructed.final_content),
+        current_lines=count_content_lines(edit.current_content),
+        final_lines=count_content_lines(edit.final_content),
     )
 
 
