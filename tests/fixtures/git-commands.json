@@ -7,6 +7,32 @@
     "rule": "GIT-PROTECTED-BRANCH"
   },
   {
+    "name": "global option before the commit subcommand",
+    "command": "git --no-pager commit --no-verify -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "hook bypass after another command in the chain",
+    "command": "echo ok && git commit --no-verify -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "the option only matters to git",
+    "command": "some-tool --no-verify",
+    "branch": "feature",
+    "decision": "none"
+  },
+  {
+    "name": "no-verify inside a git log pattern is data",
+    "command": "git log --grep=\"--no-verify\"",
+    "branch": "feature",
+    "decision": "none"
+  },
+  {
     "name": "protected branch force push with output redirected",
     "command": "git push --force origin main > push.log",
     "branch": "feature",

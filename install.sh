@@ -23,6 +23,10 @@ RETIRED_PATHS=(
   "skills/explain"
   "skills/fix-build"
   "skills/init"
+  # Superseded by command_guard.py, which judges the same commands and writes
+  # through the shared guard package instead of a second implementation.
+  "hooks/scripts/block-no-verify.sh"
+  "hooks/scripts/secret_guard.py"
 )
 RETIRED_DIRS=("agents")
 

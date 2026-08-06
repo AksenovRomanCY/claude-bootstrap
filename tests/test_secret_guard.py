@@ -23,8 +23,10 @@ from guard.decisions import DecisionKind  # noqa: E402
 from guard.secrets import FileClass, classify_file, detect_secrets, evaluate  # noqa: E402
 
 
-SECRET_GUARD = SCRIPTS_DIR / "secret_guard.py"
-secret_guard = load_script(SECRET_GUARD)
+# The standalone secret_guard.py entrypoint is retired: command_guard.py runs
+# the same rule for Write and Edit payloads.
+COMMAND_GUARD = SCRIPTS_DIR / "command_guard.py"
+command_guard = load_script(COMMAND_GUARD)
 
 
 AWS_KEY = "AKIA1234567890ABCDEF"
@@ -60,7 +62,7 @@ class SecretGuardTests(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def run_guard(self, payload):
-        return run_script(SECRET_GUARD, payload)
+        return run_script(COMMAND_GUARD, payload)
 
     def hook_output(self, completed):
         self.assertEqual(completed.returncode, 0)
@@ -265,11 +267,11 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(decision.kind, DecisionKind.NONE)
 
     def test_malformed_json_fails_open_without_content(self):
-        completed = run_script(SECRET_GUARD, "{invalid")
+        completed = run_script(COMMAND_GUARD, "{invalid")
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout, "")
-        self.assertIn("secret_guard warning", completed.stderr)
+        self.assertIn("command_guard warning", completed.stderr)
         self.assertNotIn("invalid", completed.stderr)
 
     def write_policy(self, policy):

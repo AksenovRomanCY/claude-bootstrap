@@ -205,35 +205,25 @@ echo "$INPUT" | python3 "$HOOKS/large_file_policy.py" > /dev/null 2>&1 && pass "
 echo ""
 
 # --------------------------------------------------
-echo "block-no-verify.sh"
+echo "retired scripts"
 # --------------------------------------------------
 
-# Should block: git commit/push hook bypass
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit --no-verify -m test")" "git commit --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -m test --no-verify")" "git commit trailing --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git --no-pager commit --no-verify")" "git --no-pager commit --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git push origin main --no-verify")" "git push --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -n -m test")" "git commit -n"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -nm test")" "git commit bundled -n"
-expect_hook_block "block-no-verify.sh" "$(bash_input "/usr/bin/git commit -n -m test")" "absolute git commit -n"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git push -n origin main")" "git push -n dry-run"
-expect_hook_block "block-no-verify.sh" "$(bash_input "HUSKY=0 git commit -m test")" "HUSKY=0 git commit"
-expect_hook_block "block-no-verify.sh" "$(bash_input "HUSKY=0 git push origin main")" "HUSKY=0 git push"
-expect_hook_block "block-no-verify.sh" "$(bash_input "SKIP=pre-commit git commit -m test")" "SKIP git commit"
-expect_hook_block "block-no-verify.sh" "$(bash_input "SKIP=pre-commit git push origin main")" "SKIP git push"
-expect_hook_block "block-no-verify.sh" "$(bash_input "echo ok && git commit --no-verify -m test")" "compound git commit --no-verify"
+# block-no-verify.sh was a second shell tokenizer for the same commands
+# command_guard.py judges, and secret_guard.py only re-exported guard.secrets.
+# The git hook-bypass cases they covered live in tests/fixtures/git-commands.json.
+for retired in block-no-verify.sh secret_guard.py; do
+  [[ ! -e "$HOOKS/$retired" ]] && pass "$retired is gone" || fail "$retired should be gone"
+  grep -q "hooks/scripts/$retired" "$SCRIPT_DIR/install.sh" && pass "install.sh prunes $retired from older installs" || fail "install.sh should prune $retired"
+  grep -q "hooks/scripts/$retired" "$SCRIPT_DIR/uninstall.sh" && pass "uninstall.sh removes $retired from older installs" || fail "uninstall.sh should remove $retired"
+done
 
-# Should pass: unrelated --no-verify usage
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git commit -m test")" "normal git commit"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git commit -m \"--no-verify\"")" "quoted commit message"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "echo \"--no-verify\"")" "echo --no-verify"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "grep -- \"--no-verify\" README.md")" "grep --no-verify"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git log --grep=\"--no-verify\"")" "git log --grep no-verify"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "some-tool --no-verify")" "some-tool --no-verify"
-
-# Should pass: non-Bash tool
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"hello"}}'
-expect_hook_pass "block-no-verify.sh" "$INPUT" "non-Bash tool"
+# One implementation behind both legacy post-write names.
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"console.log(\"debug\")"}}'
+OUTPUT=$(run_hook "warn-debug-code.sh" "$INPUT")
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[DEBUG-CONSOLE]")' > /dev/null \
+  && pass "warn-debug-code.sh still warns through its sibling" \
+  || fail "warn-debug-code.sh should still warn through its sibling"
+grep -q "warn-secrets.sh" "$HOOKS/warn-debug-code.sh" && pass "warn-debug-code.sh defers instead of duplicating" || fail "warn-debug-code.sh should defer to warn-secrets.sh"
 
 echo ""
 

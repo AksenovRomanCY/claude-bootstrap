@@ -41,7 +41,7 @@ assert_contains "$SKILL" "read-only health check" "doctor documents read-only he
 assert_contains "$SKILL" "python3 --version" "doctor checks Python version"
 assert_contains "$SKILL" "Python is missing" "doctor continues when Python is missing"
 assert_contains "$SKILL" "hooks/scripts/command_guard.py" "doctor checks installed command guard path"
-assert_contains "$SKILL" "hooks/scripts/secret_guard.py" "doctor checks installed hook script paths"
+assert_contains "$SKILL" "hooks/scripts/post_write_warnings.py" "doctor checks installed hook script paths"
 assert_contains "$SKILL" "hooks/guard/context.py" "doctor checks installed guard module paths"
 
 # The inventory drifted once already: database.py and edit_content.py are hard

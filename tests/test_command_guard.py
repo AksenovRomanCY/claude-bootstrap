@@ -62,7 +62,6 @@ def strict_policy_workspace(policy=None):
             "managedBy": "claude-bootstrap",
             "profile": "strict",
             "commandGuard": {
-                "parserUncertainty": "ask",
                 "unknownEnvironment": "high-risk",
             },
             "database": {

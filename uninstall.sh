@@ -224,7 +224,8 @@ fi
 # --- Phase 3b: Remove components retired in 1.4.0 (older installs) ---
 for retired in agents/code-reviewer.md agents/security-reviewer.md \
                agents/planner.md agents/refactor.md \
-               skills/explain skills/fix-build skills/init; do
+               skills/explain skills/fix-build skills/init \
+               hooks/scripts/block-no-verify.sh hooks/scripts/secret_guard.py; do
   rm -rf "${TARGET:?}/$retired" 2>/dev/null || true
 done
 
