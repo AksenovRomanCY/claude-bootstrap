@@ -38,6 +38,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/check-guard-runtime.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
