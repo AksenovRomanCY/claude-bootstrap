@@ -18,7 +18,8 @@ if str(HOOKS_DIR) not in sys.path:
 
 from guard.decisions import dedupe_by_rule_id  # noqa: E402
 from guard.hook_io import run_hook  # noqa: E402
-from guard.secrets import detect_secrets  # noqa: E402
+from guard.paths import find_project_root, resolve_file_path  # noqa: E402
+from guard.secrets import FileClass, classify_file, detect_secrets  # noqa: E402
 
 
 DEBUG_PATTERNS = [
@@ -52,6 +53,9 @@ CI_PATH_PATTERNS = [
 ]
 MIGRATION_PATH_PATTERN = re.compile(r"(?:^|/)(?:migrations?|versions?)(?:/|$)", re.IGNORECASE)
 TODO_PATTERN = re.compile(r"\b(?:TODO|FIXME)\b")
+# Prose about code is not code: `console.log` in a README is the documentation
+# of a debug statement, not one left behind.
+DOCUMENTATION_SUFFIXES = {".md", ".mdx", ".markdown", ".rst", ".txt", ".adoc"}
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,7 @@ class PostWriteInput:
     tool_name: str
     file_path: str
     content: str
+    cwd: Path
 
 
 @dataclass(frozen=True)
@@ -101,23 +106,43 @@ def extract_post_write_input(payload: dict[str, Any]) -> PostWriteInput | None:
     if not isinstance(content, str):
         return None
 
-    return PostWriteInput(tool_name=tool_name, file_path=raw_file_path, content=content)
+    cwd = payload.get("cwd")
+    cwd_path = Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
+
+    return PostWriteInput(tool_name=tool_name, file_path=raw_file_path, content=content, cwd=cwd_path)
 
 
 def post_write_findings(post_input: PostWriteInput) -> list[WarningFinding]:
+    normalized = normalize_path(post_input.file_path)
+    generated = matches_any(normalized, GENERATED_PATH_PATTERNS)
+
     findings: list[WarningFinding] = []
-    findings.extend(secret_findings(post_input.content))
-    findings.extend(debug_findings(post_input.content))
+    findings.extend(secret_findings(post_input))
+    # Generated output and prose are not where a stray debug statement is a
+    # problem, and both would otherwise warn on every write.
+    if not generated and Path(normalized).suffix.lower() not in DOCUMENTATION_SUFFIXES:
+        findings.extend(debug_findings(post_input.content))
     findings.extend(path_findings(post_input.file_path, post_input.content))
     findings.extend(todo_findings(post_input.content))
     return dedupe_by_rule_id(findings)
 
 
-def secret_findings(content: str) -> list[WarningFinding]:
+def secret_findings(post_input: PostWriteInput) -> list[WarningFinding]:
+    detected = detect_secrets(post_input.content)
+    if not detected or is_ignored_file(post_input):
+        # PreToolUse already asked about a secret in a gitignored file; repeating
+        # the warning after the answer only argues with the user's decision.
+        return []
     return [
         WarningFinding(finding.rule_id, f"{finding.secret_type} detected; use environment variables or a secret manager.")
-        for finding in detect_secrets(content)
+        for finding in detected
     ]
+
+
+def is_ignored_file(post_input: PostWriteInput) -> bool:
+    project_root = find_project_root(post_input.cwd)
+    file_path = resolve_file_path(post_input.file_path, post_input.cwd)
+    return classify_file(file_path, project_root) == FileClass.IGNORED
 
 
 def debug_findings(content: str) -> list[WarningFinding]:

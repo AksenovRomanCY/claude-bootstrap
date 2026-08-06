@@ -17,13 +17,10 @@ from pathlib import Path
 from typing import Any
 
 
-PERMISSION_LISTS = {
+MANAGED_LISTS = {
     ("permissions", "allow"),
     ("permissions", "ask"),
     ("permissions", "deny"),
-}
-MANAGED_LISTS = {
-    *PERMISSION_LISTS,
     ("sandbox", "credentials", "files"),
     ("sandbox", "credentials", "envVars"),
 }

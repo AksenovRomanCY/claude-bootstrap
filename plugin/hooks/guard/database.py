@@ -17,7 +17,9 @@ SQL_PATTERNS = (
     re.compile(r"\bdrop\s+database\b", re.IGNORECASE),
     re.compile(r"\bdrop\s+schema\b", re.IGNORECASE),
     re.compile(r"\bdrop\s+table\b", re.IGNORECASE),
-    re.compile(r"\btruncate(?:\s+table)?\b", re.IGNORECASE),
+    # A table name must follow, so the MySQL rounding function `truncate(1.7, 1)`
+    # is not read as the statement that empties a table.
+    re.compile(r"\btruncate\s+(?:table\s+)?[\"'`\[\w]", re.IGNORECASE),
 )
 
 

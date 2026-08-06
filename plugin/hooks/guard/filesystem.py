@@ -92,15 +92,9 @@ def is_disk_tool(command: str) -> bool:
 
 
 def dd_writes_device(args: list[str]) -> bool:
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token.startswith("of=/dev/") or token == "of=/dev":
-            return True
-        if token == "of" and index + 1 < len(args) and args[index + 1].startswith("/dev/"):
-            return True
-        index += 1
-    return False
+    # dd takes `of=path` only: there is no spelling where the operand and its
+    # value are separate words, so nothing else has to be considered.
+    return any(argument.startswith("of=/dev/") or argument == "of=/dev" for argument in args)
 
 
 def is_recursive(args: list[str]) -> bool:

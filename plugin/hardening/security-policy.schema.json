@@ -9,6 +9,10 @@
     "version"
   ],
   "properties": {
+    "$schema": {
+      "description": "Optional editor annotation pointing at this schema. Allowed so an IDE-completed policy still validates.",
+      "type": "string"
+    },
     "version": {
       "description": "Versioned policy format. Version 1 is the initial baseline policy format.",
       "type": "integer",

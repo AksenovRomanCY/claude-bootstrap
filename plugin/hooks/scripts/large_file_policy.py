@@ -149,7 +149,14 @@ def load_policy(project_root: Path) -> LargeFilePolicy:
 
 
 def positive_int(value: object, fallback: int) -> int:
-    return value if isinstance(value, int) and value >= 0 else fallback
+    """A positive whole number, or the default.
+
+    `True` is an `int` in Python and would configure a one-line threshold, and a
+    zero threshold would warn about every file ever written.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return fallback
+    return value
 
 
 def write_file_state(file_path: Path, content: str) -> FileState:
