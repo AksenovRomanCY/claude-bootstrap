@@ -359,7 +359,7 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertIn("Bash(terraform destroy *)", settings["permissions"]["deny"])
         self.assertIn("Bash(docker system prune *)", settings["permissions"]["ask"])
         self.assertEqual(self.read_policy()["profile"], "strict")
-        self.assertEqual(self.read_policy()["commandGuard"]["parserUncertainty"], "ask")
+        self.assertEqual(self.read_policy()["commandGuard"]["unknownEnvironment"], "high-risk")
         state = self.read_state()
         self.assertEqual(state["appliedProfile"], "strict")
         self.assertIn("Bash(terraform destroy *)", state["insertedSettings"]["permissions.deny"])

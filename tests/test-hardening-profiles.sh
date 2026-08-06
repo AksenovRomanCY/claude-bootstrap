@@ -9,6 +9,7 @@ BASELINE="$ROOT/plugin/hardening/profiles/baseline.settings.json"
 STRICT="$ROOT/plugin/hardening/profiles/strict.settings.json"
 SANDBOX="$ROOT/plugin/hardening/profiles/sandbox.settings.json"
 STRICT_POLICY="$ROOT/plugin/hardening/defaults/strict-policy.json"
+POLICY_SCHEMA="$ROOT/plugin/hardening/security-policy.schema.json"
 README="$ROOT/README.md"
 
 PASSED=0
@@ -156,7 +157,14 @@ assert_jq_true_path "$SANDBOX" '.sandbox.credentials.envVars | index({"name":"NP
 assert_jq_true_path "$SANDBOX" '.sandbox.credentials.envVars | index({"name":"PYPI_API_TOKEN","mode":"deny"}) != null' "sandbox overlay denies pypi token env"
 
 assert_jq_true_path "$STRICT_POLICY" '.profile == "strict"' "strict policy identifies strict profile"
-assert_jq_true_path "$STRICT_POLICY" '.commandGuard.parserUncertainty == "ask"' "strict policy asks on parser uncertainty"
+# Deprecated keys are gone from what the profiles write; the schema still
+# accepts them so a policy written by an older version keeps validating.
+assert_jq_true_path "$STRICT_POLICY" '(.commandGuard | has("parserUncertainty") | not)' "strict policy drops the deprecated parser uncertainty key"
+assert_jq_true_path "$STRICT_POLICY" '(.commandGuard | has("infrastructureChecks") | not)' "strict policy drops the deprecated infrastructure checks key"
+assert_jq_true_path "$STRICT_POLICY" '(.production | has("awsAccountIds") | not)' "strict policy drops the deprecated aws account ids key"
+assert_jq_true_path "$POLICY_SCHEMA" '.properties.commandGuard.properties.parserUncertainty.deprecated == true' "schema still accepts the deprecated parser uncertainty key"
+assert_jq_true_path "$POLICY_SCHEMA" '.properties.commandGuard.properties.infrastructureChecks.deprecated == true' "schema still accepts the deprecated infrastructure checks key"
+assert_jq_true_path "$POLICY_SCHEMA" '.properties.production.properties.awsAccountIds.deprecated == true' "schema still accepts the deprecated aws account ids key"
 assert_jq_true_path "$STRICT_POLICY" '.commandGuard.unknownEnvironment == "high-risk"' "strict policy treats unknown environment as high risk"
 assert_jq_true_path "$STRICT_POLICY" '(.commandGuard | has("externalGuard") | not)' "strict policy does not enable external guard"
 assert_jq_true_path "$STRICT_POLICY" '.database.destructiveOperations == "deny"' "strict policy denies destructive database operations"

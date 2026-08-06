@@ -33,6 +33,28 @@ class SecurityPolicySchemaTests(unittest.TestCase):
         self.validate(self.strict_policy)
         self.assertEqual(self.strict_policy["profile"], "strict")
 
+    def test_deprecated_keys_are_gone_from_the_shipped_policies(self):
+        for policy in (self.policy, self.strict_policy):
+            self.assertNotIn("awsAccountIds", policy.get("production", {}))
+            self.assertNotIn("parserUncertainty", policy.get("commandGuard", {}))
+            self.assertNotIn("infrastructureChecks", policy.get("commandGuard", {}))
+
+    def test_a_policy_written_by_an_older_version_still_validates(self):
+        # `additionalProperties: false` means removing the keys outright would
+        # make every existing policy invalid, so they stay in the schema, marked
+        # deprecated and ignored, and drop out when /harden rewrites the policy.
+        policy = copy.deepcopy(self.policy)
+        policy.setdefault("production", {})["awsAccountIds"] = ["123456789012"]
+        policy.setdefault("commandGuard", {})["parserUncertainty"] = "ask"
+        policy["commandGuard"]["infrastructureChecks"] = ["terraform"]
+
+        self.validate(policy)
+
+        for section, key in (("production", "awsAccountIds"), ("commandGuard", "parserUncertainty"), ("commandGuard", "infrastructureChecks")):
+            node = self.schema["properties"][section]["properties"][key]
+            self.assertTrue(node["deprecated"])
+            self.assertIn("ignored", node["description"].lower())
+
     def test_schema_allows_known_profiles(self):
         profiles = self.schema["properties"]["profile"]["enum"]
 

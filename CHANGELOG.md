@@ -47,7 +47,12 @@
 - `remind-compact.sh` keeps its counter under `${XDG_RUNTIME_DIR:-$HOME/.cache}` rather than in world-writable `/tmp`
 - Hook wrappers resolve their own directory with builtins, so an empty `PATH` no longer makes them print an error
 
+### Deprecated
+- Policy keys `production.awsAccountIds`, `commandGuard.parserUncertainty` and `commandGuard.infrastructureChecks` are ignored and no longer written by either profile. They stay in the schema — `additionalProperties: false` means removing them would invalidate every existing policy — and drop out of a managed policy the next time `/harden` rewrites it
+
 ### Removed
+- `hooks/scripts/block-no-verify.sh` and `hooks/scripts/secret_guard.py`. The first was a second shell tokenizer for the commands `command_guard.py` already judges, the second only re-exported `guard.secrets`; both are pruned from older installs on upgrade, and the hook-bypass cases they covered moved into the git fixtures
+- `warn-debug-code.sh` is no longer a copy of `warn-secrets.sh` — it execs it, so both legacy names keep working with one implementation behind them
 - **Breaking:** all four agents (`code-reviewer`, `security-reviewer`, `planner`, `refactor`) — superseded by built-in `/code-review`, `/review`, `/security-review`, `/simplify`, and the built-in `Plan` agent. `install.sh` no longer has `--skip-agents`
 - **Breaking:** skills `explain` and `fix-build` — both duplicated default Claude Code behavior
 - Dead code: the unused `PERMISSION_LISTS` grouping and the `dd of` spelling that `dd` does not accept

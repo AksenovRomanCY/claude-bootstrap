@@ -69,12 +69,13 @@
           }
         },
         "awsAccountIds": {
-          "description": "AWS account IDs that should be treated as production.",
+          "description": "Deprecated and ignored: no guard rule reads the AWS account. Kept so existing policies still validate; remove it from yours.",
           "type": "array",
           "uniqueItems": true,
           "items": {
             "type": "string"
-          }
+          },
+          "deprecated": true
         }
       }
     },
@@ -149,12 +150,13 @@
       "additionalProperties": false,
       "properties": {
         "parserUncertainty": {
-          "description": "Legacy compatibility setting. Unsupported shell parser constructs always require confirmation.",
+          "description": "Deprecated and ignored: unsupported shell parser constructs always require confirmation. Kept so existing policies still validate; remove it from yours.",
           "type": "string",
           "enum": [
             "warning",
             "ask"
-          ]
+          ],
+          "deprecated": true
         },
         "unknownEnvironment": {
           "description": "How production-sensitive operations behave when environment context is unknown.",
@@ -169,12 +171,13 @@
           "type": "boolean"
         },
         "infrastructureChecks": {
-          "description": "Infrastructure command families expected to receive stricter guard review.",
+          "description": "Deprecated and ignored: the infrastructure families a guard reviews are not configurable. Kept so existing policies still validate; remove it from yours.",
           "type": "array",
           "uniqueItems": true,
           "items": {
             "type": "string"
-          }
+          },
+          "deprecated": true
         }
       }
     },

@@ -15,8 +15,7 @@
       "live"
     ],
     "kubeContexts": [],
-    "terraformWorkspaces": [],
-    "awsAccountIds": []
+    "terraformWorkspaces": []
   },
   "paths": {
     "safeRecursiveDelete": [
@@ -37,16 +36,7 @@
     "askOnGrowthLines": 75
   },
   "commandGuard": {
-    "parserUncertainty": "ask",
-    "unknownEnvironment": "high-risk",
-    "infrastructureChecks": [
-      "docker-system-prune",
-      "remote-script",
-      "terraform",
-      "kubectl",
-      "helm",
-      "package-publish"
-    ]
+    "unknownEnvironment": "high-risk"
   },
   "database": {
     "destructiveOperations": "deny"
