@@ -9,12 +9,23 @@ from pathlib import Path
 from .context import HookContext
 from .decisions import Decision
 from .options import has_option, positional_args
-from .paths import find_project_root_literal, normalize_existing_path
+from .paths import find_project_root_literal, normalize_existing_path, path_matches_patterns
+from .policy import load_policy, policy_section, string_list
 from .shell import CommandSegment, ShellParseResult
 
 
 DISK_TOOLS = {"wipefs", "fdisk", "parted"}
 GLOB_MARKERS = ("*", "?", "[")
+# Directories that hold the system or every user's data. Deleting one recursively
+# is never a step in a task, so these are denied rather than confirmed; anything
+# deeper (`/usr/local/share/foo`) stays an ask.
+SYSTEM_ROOTS = {
+    "/usr", "/etc", "/var", "/bin", "/sbin", "/lib", "/opt", "/boot", "/dev",
+    "/System", "/Library", "/home", "/Users", "/root",
+}
+# Used when the project has no policy, and kept in step with the shipped baseline
+# policy (plugin/hardening/defaults/baseline-policy.json).
+DEFAULT_SAFE_RECURSIVE_DELETE = (".cache", "dist", "build", "node_modules", "tmp")
 
 
 @dataclass(frozen=True)
@@ -29,13 +40,16 @@ class FilesystemContext:
     cwd: Path
     project_root: Path
     home: Path
+    safe_delete_patterns: tuple[str, ...] = DEFAULT_SAFE_RECURSIVE_DELETE
 
 
 def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
+    project_root = find_project_root_literal(context.cwd)
     fs_context = FilesystemContext(
         cwd=normalize_existing_path(context.cwd),
-        project_root=find_project_root_literal(context.cwd),
+        project_root=project_root,
         home=Path.home(),
+        safe_delete_patterns=load_safe_delete_patterns(project_root),
     )
     decisions: list[Decision] = []
 
@@ -89,15 +103,23 @@ def dd_writes_device(args: list[str]) -> bool:
     return False
 
 
-def is_recursive_force(args: list[str]) -> bool:
-    """`rm -rf` in any spelling: separate flags, a cluster, or long options."""
-    recursive = has_option(args, ["--recursive"], short_letters="rR")
-    force = has_option(args, ["--force"], short_letters="f")
-    return recursive and force
+def is_recursive(args: list[str]) -> bool:
+    """`rm -r` in any spelling: separate flags, a cluster, or long options.
+
+    `-f` is deliberately not required: recursion is what makes the command
+    dangerous, while `-f` only suppresses the prompts rm would ask itself.
+    """
+    return has_option(args, ["--recursive"], short_letters="rR")
+
+
+def load_safe_delete_patterns(project_root: Path) -> tuple[str, ...]:
+    """`paths.safeRecursiveDelete` from the project policy, else the shipped default."""
+    configured = string_list(policy_section(load_policy(project_root), "paths").get("safeRecursiveDelete"))
+    return tuple(configured) if configured else DEFAULT_SAFE_RECURSIVE_DELETE
 
 
 def evaluate_rm(segment: CommandSegment, context: FilesystemContext) -> list[Decision]:
-    if not is_recursive_force(segment.args):
+    if not is_recursive(segment.args):
         return []
 
     path_args = positional_args(segment.args, set())
@@ -123,6 +145,9 @@ def evaluate_rm(segment: CommandSegment, context: FilesystemContext) -> list[Dec
                     f"Do not recursively delete critical path: {raw_path}.",
                 )
             )
+            continue
+
+        if target.path is not None and is_safe_rm_target(target.path, context):
             continue
 
         decisions.append(Decision.ask("FS-RM-RF", f"Confirm recursive deletion of {raw_path}."))
@@ -151,6 +176,11 @@ def normalize_target(raw_path: str, context: FilesystemContext) -> PathTarget:
         absolute = os.path.join(str(context.cwd), expanded)
 
     normalized = os.path.normpath(absolute)
+    # POSIX keeps a leading `//` and normpath honours that, so `//usr` would slip
+    # past a comparison that `/usr` fails. `///` already collapses, so collapsing
+    # `//` too only makes the two spellings agree.
+    if normalized.startswith("//"):
+        normalized = "/" + normalized.lstrip("/")
     return PathTarget(raw=raw_path, path=Path(normalized))
 
 
@@ -177,4 +207,19 @@ def is_critical_rm_target(path: Path, context: FilesystemContext) -> bool:
         context.project_root.parent,
         context.project_root / ".git",
     }
-    return path in critical_paths
+    return path in critical_paths or path.as_posix() in SYSTEM_ROOTS
+
+
+def is_safe_rm_target(path: Path, context: FilesystemContext) -> bool:
+    """Build output the project itself declares disposable, such as `dist`.
+
+    Only inside the project, and never the project root: `paths.safeRecursiveDelete`
+    names generated directories, not whatever happens to share their name elsewhere.
+    """
+    if path == context.project_root:
+        return False
+    try:
+        path.relative_to(context.project_root)
+    except ValueError:
+        return False
+    return path_matches_patterns(path, context.project_root, context.safe_delete_patterns)

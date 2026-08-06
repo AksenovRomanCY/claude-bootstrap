@@ -98,8 +98,12 @@ def prepared_filesystem_workspace(fixture):
         project = parent / "project"
         project.mkdir()
         (project / ".git").mkdir()
-        for directory in ["dist", "build", "node_modules", "build output", "linked"]:
+        for directory in ["dist", "build", "node_modules", "build output", "linked", "src", "artifacts"]:
             (project / directory).mkdir()
+
+        policy = fixture.get("policy")
+        if policy is not None:
+            write_policy(project, {"version": 1, **policy})
 
         command = fixture["command"].replace("{{PROJECT}}", project.as_posix()).replace("{{PARENT}}", parent.as_posix())
         yield project, command
@@ -329,6 +333,11 @@ class CommandGuardTests(unittest.TestCase):
                     }
                     if segment.unsupported:
                         data["unsupported"] = segment.unsupported
+                    if segment.redirects:
+                        data["redirects"] = [
+                            {"op": redirect.op, "target": redirect.target, "fd": redirect.fd}
+                            for redirect in segment.redirects
+                        ]
                     actual_segments.append(data)
 
                 self.assertEqual(actual_segments, fixture["segments"])
@@ -397,7 +406,7 @@ class CommandGuardTests(unittest.TestCase):
 
     def test_filesystem_rules_do_not_run_subprocesses(self):
         with mock.patch("subprocess.run", side_effect=AssertionError("filesystem rules must not run subprocesses")):
-            decisions = evaluate_filesystem(from_hook_payload(bash_payload("rm -rf dist")), parse("rm -rf dist"))
+            decisions = evaluate_filesystem(from_hook_payload(bash_payload("rm -rf src")), parse("rm -rf src"))
 
         self.assertEqual(decisions[0].rule_id, "FS-RM-RF")
 

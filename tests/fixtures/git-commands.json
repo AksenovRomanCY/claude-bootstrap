@@ -7,6 +7,13 @@
     "rule": "GIT-PROTECTED-BRANCH"
   },
   {
+    "name": "protected branch force push with output redirected",
+    "command": "git push --force origin main > push.log",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
     "name": "protected branch force lease current",
     "command": "git push --force-with-lease",
     "branch": "main",

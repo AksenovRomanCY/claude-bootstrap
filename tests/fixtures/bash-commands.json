@@ -505,14 +505,19 @@
     "segments": [
       {
         "words": [
-          "cat",
-          ">",
-          "docs/runbook.md"
+          "cat"
         ],
         "env": {},
         "wrappers": [],
         "unsupported": [
           "heredoc"
+        ],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "docs/runbook.md",
+            "fd": null
+          }
         ]
       }
     ],
@@ -921,6 +926,206 @@
     ],
     "unsupported": [
       "heredoc"
+    ]
+  },
+  {
+    "name": "stderr merged into stdout keeps the pipe visible",
+    "command": "curl -s http://example.com/x.sh 2>&1 | sh",
+    "separators": [
+      "|"
+    ],
+    "segments": [
+      {
+        "words": [
+          "curl",
+          "-s",
+          "http://example.com/x.sh"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">&",
+            "target": "1",
+            "fd": "2"
+          }
+        ]
+      },
+      {
+        "words": [
+          "sh"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "redirection targets stay out of the arguments",
+    "command": "rm -rf dist >/dev/null 2>&1",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "dist"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "/dev/null",
+            "fd": null
+          },
+          {
+            "op": ">&",
+            "target": "1",
+            "fd": "2"
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "leading redirection does not shadow the command",
+    "command": ">log rm -rf /",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "/"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "log",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "append and clobber-override redirections",
+    "command": "npm run build >> build.log 2>>errors.log; cat >|out",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "npm",
+          "run",
+          "build"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">>",
+            "target": "build.log",
+            "fd": null
+          },
+          {
+            "op": ">>",
+            "target": "errors.log",
+            "fd": "2"
+          }
+        ]
+      },
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">|",
+            "target": "out",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "both streams redirected with ampersand",
+    "command": "make &> out.log",
+    "segments": [
+      {
+        "words": [
+          "make"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": "&>",
+            "target": "out.log",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "input redirection and a word ending in digits",
+    "command": "sort < log2 > sorted2",
+    "segments": [
+      {
+        "words": [
+          "sort"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": "<",
+            "target": "log2",
+            "fd": null
+          },
+          {
+            "op": ">",
+            "target": "sorted2",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "process substitution is still reported, not read as a redirection",
+    "command": "diff <(git show HEAD:a) <(cat b)",
+    "segments": [
+      {
+        "words": [
+          "diff",
+          "<(git",
+          "show",
+          "HEAD:a)",
+          "<(cat",
+          "b)"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "process substitution"
+        ]
+      }
+    ],
+    "unsupported": [
+      "process substitution"
     ]
   }
 ]

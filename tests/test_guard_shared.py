@@ -17,6 +17,7 @@ from guard.paths import (  # noqa: E402
     relative_to_project,
     resolve_file_path,
 )
+from guard.filesystem import is_recursive  # noqa: E402
 from guard.options import (  # noqa: E402
     first_positional,
     has_option,
@@ -242,18 +243,13 @@ class OptionTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertFalse(has_option(args, ["--force"], short_letters="f"))
 
-    def test_rm_recursive_force_spellings(self):
-        def recursive_force(args):
-            return has_option(args, ["--recursive"], short_letters="rR") and has_option(
-                args, ["--force"], short_letters="f"
-            )
-
-        for args in (["-rf"], ["-r", "-f"], ["-R", "--force"], ["--recursive", "--force"], ["-fR"]):
+    def test_rm_recursive_spellings(self):
+        for args in (["-rf"], ["-r", "-f"], ["-R", "--force"], ["--recursive", "--force"], ["-fR"], ["-r"], ["--recursive"]):
             with self.subTest(args=args):
-                self.assertTrue(recursive_force(args))
-        for args in (["-r"], ["-f"], ["--recursive"]):
+                self.assertTrue(is_recursive(args))
+        for args in (["-f"], ["--force"], ["-i"], ["--", "-r"]):
             with self.subTest(args=args):
-                self.assertFalse(recursive_force(args))
+                self.assertFalse(is_recursive(args))
 
     def test_positionals_skip_options_and_their_values(self):
         args = ["--namespace", "prod", "-v", "pods", "web"]

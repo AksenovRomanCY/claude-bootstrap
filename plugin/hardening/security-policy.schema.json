@@ -80,7 +80,7 @@
       "additionalProperties": false,
       "properties": {
         "safeRecursiveDelete": {
-          "description": "Paths that may be considered lower risk for recursive deletion after confirmation.",
+          "description": "Project paths whose recursive deletion needs no confirmation, such as build output. Matched project-relative or by bare directory name; replaces the built-in list when set.",
           "type": "array",
           "uniqueItems": true,
           "items": {

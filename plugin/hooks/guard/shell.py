@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 
 
@@ -10,6 +10,9 @@ SEPARATORS = {"&&", "||", ";", "&", "|", "|&", "\n", "(", ")"}
 # Longest first, so `;;&` wins over `;;` and `&&` over `&`. A newline is also a
 # separator but is matched separately: it terminates a heredoc redirection.
 OPERATORS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|")
+# Longest first as well: `&>>` must win over `&>`, and `>>` over `>`. `<<` and
+# `<<<` are absent on purpose — a heredoc is read before this table is consulted.
+REDIRECTION_OPERATORS = ("&>>", "&>", ">>", ">|", ">&", "<&", "<>", ">", "<")
 # `case` arm terminators. They only appear inside a case statement, which the
 # guard does not model, so they are reported and treated as a plain separator.
 CASE_OPERATORS = {";;&": ";", ";;": ";", ";&": ";"}
@@ -65,11 +68,25 @@ CONTROL_PREFIXES = {
 
 
 @dataclass(frozen=True)
+class Redirect:
+    """One redirection: `2>&1` is `fd="2"`, `op=">&"`, `target="1"`.
+
+    Targets are kept rather than dropped, so a rule about what a command writes
+    to — `> /dev/sda` — can be added later without touching the parser.
+    """
+
+    op: str
+    target: str = ""
+    fd: str | None = None
+
+
+@dataclass(frozen=True)
 class CommandSegment:
     words: list[str]
     env: dict[str, str] = field(default_factory=dict)
     wrappers: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
+    redirects: list[Redirect] = field(default_factory=list)
 
     @property
     def command(self) -> str | None:
@@ -91,6 +108,9 @@ class ShellParseResult:
 class Token:
     text: str
     quoted: bool = False
+    # Set when the token is a redirection operator; `parse` takes the word after
+    # it as the target. Such a token is never part of a command's words.
+    redirect: Redirect | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +140,20 @@ def add_unsupported(unsupported: list[str], construct: str) -> None:
 
 def match_operator(command: str, index: int) -> str | None:
     return next((operator for operator in OPERATORS if command.startswith(operator, index)), None)
+
+
+def match_redirection(command: str, index: int) -> str | None:
+    """The redirection operator at `index`, if one starts there.
+
+    `<(` and `>(` open a process substitution, not a redirection: they are left
+    to the word reader, which reports them as unmodelled.
+    """
+    if command.startswith(("<(", ">("), index):
+        return None
+    return next(
+        (operator for operator in REDIRECTION_OPERATORS if command.startswith(operator, index)),
+        None,
+    )
 
 
 def read_heredoc_delimiter(command: str, index: int) -> tuple[str, int]:
@@ -187,6 +221,7 @@ class Tokenizer:
     """
 
     BLANKS = {" ", "\t", "\r"}
+    DIGITS = set("0123456789")
 
     def __init__(self, command: str) -> None:
         self.command = command
@@ -269,6 +304,10 @@ class Tokenizer:
                 self.index += 1
             elif char == "\n":
                 self.read_newline()
+            # Redirections are matched before the operator table: without this
+            # the `&` of `2>&1` reads as a separator and splits one command in two.
+            elif (redirection := match_redirection(self.command, self.index)) is not None:
+                self.read_redirection(redirection)
             elif (operator := match_operator(self.command, self.index)) is not None:
                 self.read_operator(operator)
             elif char in {"(", ")"} and not self.substitution_depth:
@@ -362,6 +401,25 @@ class Tokenizer:
         self.emit(CASE_OPERATORS.get(operator, operator))
         self.index += len(operator)
 
+    def read_redirection(self, operator: str) -> None:
+        """`[fd]<op>[target]`: the operator becomes a token of its own.
+
+        A word made only of digits and touching the operator is the descriptor
+        it applies to (`2>&1`), so it is taken off the accumulator instead of
+        being emitted as a word; anything else in front is an ordinary word
+        (`log2>out` writes to `out` and leaves `log2` alone).
+        """
+        fd: str | None = None
+        if operator[0] in {"<", ">"} and self._text and not self._quoted and self.DIGITS.issuperset(self._text):
+            fd = self._text
+            self._text = ""
+            self._started = False
+        else:
+            self.flush()
+
+        self.index += len(operator)
+        self.tokens.append(Token(text=operator, redirect=Redirect(op=operator, fd=fd)))
+
     def read_grouping(self) -> None:
         """`(` and `)` around a subshell or brace group are separators, not text.
 
@@ -442,7 +500,11 @@ def is_shell_c_invocation(words: list[str]) -> bool:
     return False
 
 
-def normalize_segment(words: list[str], command_unsupported: list[str]) -> CommandSegment | None:
+def normalize_segment(
+    words: list[str],
+    command_unsupported: list[str],
+    redirects: list[Redirect] | None = None,
+) -> CommandSegment | None:
     if not words:
         return None
 
@@ -513,7 +575,13 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
     if leading == "xargs":
         add_unsupported(unsupported, "xargs")
 
-    return CommandSegment(words=normalized, env=env, wrappers=wrappers, unsupported=unsupported)
+    return CommandSegment(
+        words=normalized,
+        env=env,
+        wrappers=wrappers,
+        unsupported=unsupported,
+        redirects=redirects or [],
+    )
 
 
 def parse(command: str) -> ShellParseResult:
@@ -521,6 +589,8 @@ def parse(command: str) -> ShellParseResult:
     segments: list[CommandSegment] = []
     separators: list[str] = []
     current: list[str] = []
+    current_redirects: list[Redirect] = []
+    pending_redirect: Redirect | None = None
     pending_separator: str | None = None
     pending_marks: list[str] = []
     next_mark = 0
@@ -529,9 +599,22 @@ def parse(command: str) -> ShellParseResult:
         while next_mark < len(tokenized.marks) and tokenized.marks[next_mark][0] <= index:
             add_unsupported(pending_marks, tokenized.marks[next_mark][1])
             next_mark += 1
+        is_separator = token.text in SEPARATORS and not token.quoted and token.redirect is None
+        # The word after a redirection operator is its target, not a command
+        # argument — unless the redirection has none and a separator follows.
+        if pending_redirect is not None:
+            if not is_separator:
+                current_redirects.append(replace(pending_redirect, target=token.text))
+                pending_redirect = None
+                continue
+            current_redirects.append(pending_redirect)
+            pending_redirect = None
+        if token.redirect is not None:
+            pending_redirect = token.redirect
+            continue
         # A quoted token is data, never an operator: `rm -rf ';' /` is one command.
-        if token.text in SEPARATORS and not token.quoted:
-            segment = normalize_segment(current, pending_marks)
+        if is_separator:
+            segment = normalize_segment(current, pending_marks, current_redirects)
             if segment is not None:
                 if segments and pending_separator is not None:
                     separators.append(pending_separator)
@@ -540,13 +623,16 @@ def parse(command: str) -> ShellParseResult:
                 # next, so a construct is never dropped on the floor.
                 pending_marks = []
             current = []
+            current_redirects = []
             pending_separator = token.text
             continue
         current.append(token.text)
 
+    if pending_redirect is not None:
+        current_redirects.append(pending_redirect)
     for _, construct in tokenized.marks[next_mark:]:
         add_unsupported(pending_marks, construct)
-    segment = normalize_segment(current, pending_marks)
+    segment = normalize_segment(current, pending_marks, current_redirects)
     if segment is not None:
         if segments and pending_separator is not None:
             separators.append(pending_separator)
