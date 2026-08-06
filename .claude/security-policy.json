@@ -1,0 +1,7 @@
+{
+  "secrets": {
+    "allowPaths": [
+      "tests/test_command_guard.py"
+    ]
+  }
+}

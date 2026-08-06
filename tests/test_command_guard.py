@@ -202,14 +202,38 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(hook_output["permissionDecision"], "ask")
         self.assertIn("[UNSUPPORTED-SHELL]", hook_output["permissionDecisionReason"])
 
-    def test_shell_control_syntax_requires_confirmation(self):
+    def test_shell_control_syntax_is_judged_by_the_command_it_guards(self):
         completed = self.run_guard(bash_payload("if true; then git commit -n -m test; fi"))
 
         self.assertEqual(completed.returncode, 0)
         output = json.loads(completed.stdout)
         hook_output = output["hookSpecificOutput"]
-        self.assertEqual(hook_output["permissionDecision"], "ask")
-        self.assertIn("[UNSUPPORTED-SHELL]", hook_output["permissionDecisionReason"])
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[GIT-HOOK-BYPASS]", hook_output["permissionDecisionReason"])
+
+    def test_subshell_does_not_hide_the_command_it_wraps(self):
+        completed = self.run_guard(bash_payload("(cd /tmp && git push --mirror origin)"))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[GIT-PUSH-MIRROR]", hook_output["permissionDecisionReason"])
+
+    def test_loop_body_does_not_hide_the_command_it_runs(self):
+        completed = self.run_guard(bash_payload("for f in *; do git commit -n -m test; done"))
+
+        self.assertEqual(completed.returncode, 0)
+        output = json.loads(completed.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
+        self.assertIn("[GIT-HOOK-BYPASS]", hook_output["permissionDecisionReason"])
+
+    def test_control_syntax_alone_does_not_prompt(self):
+        completed = self.run_guard(bash_payload("if true; then time git status; fi"))
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, "")
 
     def test_compound_bash_payload_runs_through_guard(self):
         completed = self.run_guard(bash_payload("echo ok && git commit --no-verify -m test"))

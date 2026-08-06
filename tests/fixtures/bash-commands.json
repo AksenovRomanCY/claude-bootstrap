@@ -419,7 +419,7 @@
     ]
   },
   {
-    "name": "brace group is unsupported control syntax",
+    "name": "brace group exposes the command it wraps",
     "command": "{ git commit -n -m test; }",
     "separators": [
       ";"
@@ -427,7 +427,6 @@
     "segments": [
       {
         "words": [
-          "{",
           "git",
           "commit",
           "-n",
@@ -435,25 +434,17 @@
           "test"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "shell control syntax"
-        ]
+        "wrappers": []
       },
       {
         "words": [
           "}"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "shell control syntax"
-        ]
+        "wrappers": []
       }
     ],
-    "unsupported": [
-      "shell control syntax"
-    ]
+    "unsupported": []
   },
   {
     "name": "quoted separator is data",
@@ -553,10 +544,7 @@
           "/"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "heredoc"
-        ]
+        "wrappers": []
       }
     ],
     "unsupported": [
@@ -748,10 +736,7 @@
           "two"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "unsupported control operator"
-        ]
+        "wrappers": []
       }
     ],
     "unsupported": [
@@ -782,10 +767,7 @@
           "two"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "unsupported control operator"
-        ]
+        "wrappers": []
       }
     ],
     "unsupported": [
@@ -816,10 +798,7 @@
           "two"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "unsupported control operator"
-        ]
+        "wrappers": []
       }
     ],
     "unsupported": [
@@ -937,10 +916,7 @@
           "status"
         ],
         "env": {},
-        "wrappers": [],
-        "unsupported": [
-          "heredoc"
-        ]
+        "wrappers": []
       }
     ],
     "unsupported": [

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 
-SEPARATORS = {"&&", "||", ";", "&", "|", "|&", "\n"}
+SEPARATORS = {"&&", "||", ";", "&", "|", "|&", "\n", "(", ")"}
 # Longest first, so `;;&` wins over `;;` and `&&` over `&`. A newline is also a
 # separator but is matched separately: it terminates a heredoc redirection.
 OPERATORS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|")
@@ -42,23 +42,21 @@ WRAPPER_OPTIONS: dict[str, tuple[frozenset[str], int]] = {
     "setsid": (frozenset(), 0),
     "doas": (frozenset({"-u", "-C"}), 0),
 }
-CONTROL_WORDS = {
+# Reserved words that may stand in front of a real command: `if git push ...`,
+# `do rm -rf ...`, `time npm test`. They are stripped so the command behind them
+# is the one rules judge; leaving them in place let any keyword shadow it.
+#
+# The remaining reserved words (`fi`, `done`, `esac`, `}`, and the `for f in *`
+# header) never precede a command, so they need no entry here: they simply match
+# no rule.
+CONTROL_PREFIXES = {
     "!",
     "{",
-    "}",
-    "case",
     "coproc",
     "do",
-    "done",
     "elif",
     "else",
-    "esac",
-    "fi",
-    "for",
-    "function",
     "if",
-    "in",
-    "select",
     "then",
     "time",
     "until",
@@ -99,6 +97,9 @@ class Token:
 class TokenizeResult:
     tokens: list[Token]
     unsupported: list[str]
+    # (token index, construct): where the construct was seen, so `parse` can hand
+    # it to the segment that contains it instead of stamping every segment.
+    marks: list[tuple[int, str]] = field(default_factory=list)
 
 
 def is_assignment(word: str) -> bool:
@@ -154,9 +155,12 @@ def skip_heredoc_bodies(
     command: str,
     index: int,
     heredocs: list[tuple[str, bool]],
-    unsupported: list[str],
-) -> int:
-    """Consume heredoc bodies verbatim so their lines are never parsed as commands."""
+) -> tuple[int, bool]:
+    """Consume heredoc bodies verbatim so their lines are never parsed as commands.
+
+    Returns the cursor and whether a body ran off the end of the command; the
+    caller records that through `mark`, so it reaches the right segment.
+    """
     for delimiter, strip_tabs in heredocs:
         terminated = False
         while index < len(command):
@@ -168,9 +172,8 @@ def skip_heredoc_bodies(
                 terminated = True
                 break
         if not terminated:
-            add_unsupported(unsupported, "unterminated heredoc")
-            break
-    return index
+            return index, True
+    return index, False
 
 
 class Tokenizer:
@@ -190,6 +193,8 @@ class Tokenizer:
         self.index = 0
         self.tokens: list[Token] = []
         self.unsupported: list[str] = []
+        self.marks: list[tuple[int, str]] = []
+        self.substitution_depth = 0
         self.pending_heredocs: list[tuple[str, bool]] = []
         self._text = ""
         self._quoted = False
@@ -236,8 +241,13 @@ class Tokenizer:
         self.flush()
         self.tokens.append(Token(text=text))
 
-    def mark(self, construct: str) -> None:
+    def mark(self, construct: str, position: int | None = None) -> None:
         add_unsupported(self.unsupported, construct)
+        # The token under construction has not been flushed yet, so its index is
+        # the current length: the mark lands on the segment that word belongs to.
+        # `position` overrides that for constructs noticed after the separator
+        # that closes their segment has already been emitted.
+        self.marks.append((len(self.tokens) if position is None else position, construct))
 
     # -- constructs ------------------------------------------------------
 
@@ -261,13 +271,15 @@ class Tokenizer:
                 self.read_newline()
             elif (operator := match_operator(self.command, self.index)) is not None:
                 self.read_operator(operator)
+            elif char in {"(", ")"} and not self.substitution_depth:
+                self.read_grouping()
             else:
                 self.read_word_character()
 
         if self.pending_heredocs:
             self.mark("unterminated heredoc")
         self.flush()
-        return TokenizeResult(tokens=self.tokens, unsupported=self.unsupported)
+        return TokenizeResult(tokens=self.tokens, unsupported=self.unsupported, marks=self.marks)
 
     def read_escape(self) -> None:
         self.index += 1
@@ -337,8 +349,12 @@ class Tokenizer:
         self.index += 1
         if self.pending_heredocs:
             # The body is data, not commands: documenting `rm -rf /` must not deny.
-            self.index = skip_heredoc_bodies(self.command, self.index, self.pending_heredocs, self.unsupported)
+            self.index, unterminated = skip_heredoc_bodies(self.command, self.index, self.pending_heredocs)
             self.pending_heredocs = []
+            if unterminated:
+                # The newline closing the redirection is already emitted; the
+                # mark belongs to the command in front of it.
+                self.mark("unterminated heredoc", position=len(self.tokens) - 1)
 
     def read_operator(self, operator: str) -> None:
         if operator in CASE_OPERATORS:
@@ -346,20 +362,33 @@ class Tokenizer:
         self.emit(CASE_OPERATORS.get(operator, operator))
         self.index += len(operator)
 
+    def read_grouping(self) -> None:
+        """`(` and `)` around a subshell or brace group are separators, not text.
+
+        Splitting on them keeps the commands inside visible to the rules, which is
+        why grouping is no longer reported as unmodelled: nothing is hidden by it.
+        """
+        self.emit(self.take())
+
     def read_word_character(self) -> None:
         """Consume one ordinary character, noting constructs the guard cannot model."""
         char = self.peek()
-        if char == "$" and self.peek(1) == "(":
-            self.mark("command substitution")
-        elif char == "`":
+        # Substitutions swallow their own parentheses: what runs inside them is
+        # not a segment of this command line, and the opening pair is consumed
+        # together so `(` is never mistaken for a group.
+        if self.peek(1) == "(" and char in {"$", "<", ">"}:
+            self.mark("command substitution" if char == "$" else "process substitution")
+            self.substitution_depth += 1
+            self.add(self.take())
+            self.add(self.take())
+            return
+        if char == "`":
             self.mark("backtick command substitution")
-
-        if char == "(" and self.command[self.index - 1 : self.index] not in {"$", "<", ">"}:
-            self.mark("subshell or grouping")
-        if char == ")" and not {"command substitution", "process substitution"}.intersection(self.unsupported):
-            self.mark("subshell or grouping")
-        if char in {"<", ">"} and self.peek(1) == "(":
-            self.mark("process substitution")
+        if self.substitution_depth:
+            if char == "(":
+                self.substitution_depth += 1
+            elif char == ")":
+                self.substitution_depth -= 1
 
         self.add(self.take())
 
@@ -421,6 +450,11 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
     wrappers: list[str] = []
     index = 0
 
+    # `if`, `do`, `time` and friends stand in front of the real command; without
+    # stripping them `do rm -rf /` would be judged as a command named `do`.
+    while index < len(words) and words[index] in CONTROL_PREFIXES:
+        index += 1
+
     while index < len(words) and is_assignment(words[index]):
         name, value = words[index].split("=", 1)
         env[name] = value
@@ -472,8 +506,6 @@ def normalize_segment(words: list[str], command_unsupported: list[str]) -> Comma
         add_unsupported(unsupported, "inline interpreter code")
     if leading in {"powershell", "pwsh"}:
         add_unsupported(unsupported, "powershell")
-    if normalized and normalized[0] in CONTROL_WORDS:
-        add_unsupported(unsupported, "shell control syntax")
     # eval re-parses its arguments and xargs builds a command line from stdin, so
     # neither can be analyzed statically: `eval 'rm -rf /'` must not pass silently.
     if leading == "eval":
@@ -490,21 +522,31 @@ def parse(command: str) -> ShellParseResult:
     separators: list[str] = []
     current: list[str] = []
     pending_separator: str | None = None
+    pending_marks: list[str] = []
+    next_mark = 0
 
-    for token in tokenized.tokens:
+    for index, token in enumerate(tokenized.tokens):
+        while next_mark < len(tokenized.marks) and tokenized.marks[next_mark][0] <= index:
+            add_unsupported(pending_marks, tokenized.marks[next_mark][1])
+            next_mark += 1
         # A quoted token is data, never an operator: `rm -rf ';' /` is one command.
         if token.text in SEPARATORS and not token.quoted:
-            segment = normalize_segment(current, tokenized.unsupported)
+            segment = normalize_segment(current, pending_marks)
             if segment is not None:
                 if segments and pending_separator is not None:
                     separators.append(pending_separator)
                 segments.append(segment)
+                # Marks belong to one segment; an empty one keeps them for the
+                # next, so a construct is never dropped on the floor.
+                pending_marks = []
             current = []
             pending_separator = token.text
             continue
         current.append(token.text)
 
-    segment = normalize_segment(current, tokenized.unsupported)
+    for _, construct in tokenized.marks[next_mark:]:
+        add_unsupported(pending_marks, construct)
+    segment = normalize_segment(current, pending_marks)
     if segment is not None:
         if segments and pending_separator is not None:
             separators.append(pending_separator)
