@@ -13,6 +13,13 @@ FORCE=false
 SETTINGS_WILL_CHANGE=false
 SETTINGS_CANDIDATE=""
 
+# Temporary files to remove however the script ends, including a failed `set -e` abort.
+TMP_FILES=()
+cleanup() {
+  rm -f ${TMP_FILES[@]+"${TMP_FILES[@]}"}
+}
+trap cleanup EXIT
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run) DRY_RUN=true ;;
@@ -146,6 +153,7 @@ fi
 
 if [[ -f "$SETTINGS_FILE" ]] && [[ -f "$HOOKS_FILE" ]] && jq -e '.hooks' "$SETTINGS_FILE" > /dev/null 2>&1; then
   SETTINGS_CANDIDATE=$(mktemp)
+  TMP_FILES+=("$SETTINGS_CANDIDATE")
   build_settings_cleanup_candidate "$SETTINGS_CANDIDATE"
   if json_equal "$SETTINGS_FILE" "$SETTINGS_CANDIDATE"; then
     SETTINGS_WILL_CHANGE=false
@@ -161,7 +169,9 @@ if [[ ${#FILES_TO_REMOVE[@]} -eq 0 ]]; then
   echo "  (nothing to remove — not installed?)"
 fi
 
-for rel in "${FILES_TO_REMOVE[@]}"; do
+# `${ARR[@]+…}` because bash 3.2 (the system bash on macOS) treats an empty
+# array as unset under `set -u`.
+for rel in ${FILES_TO_REMOVE[@]+"${FILES_TO_REMOVE[@]}"}; do
   echo "  [REMOVE] $rel"
 done
 
@@ -195,14 +205,19 @@ if ! $FORCE; then
 fi
 
 # --- Phase 2: Remove files ---
-for rel in "${FILES_TO_REMOVE[@]}"; do
+for rel in ${FILES_TO_REMOVE[@]+"${FILES_TO_REMOVE[@]}"}; do
   rm "$TARGET/$rel"
 done
 echo "[OK] ${#FILES_TO_REMOVE[@]} files removed"
 
 # --- Phase 3: Clean hooks from settings.json ---
 if [[ "$SETTINGS_WILL_CHANGE" == true ]]; then
-  cp "$SETTINGS_CANDIDATE" "$SETTINGS_FILE"
+  # Stage beside the target and rename, so an interrupted copy cannot truncate
+  # the user's settings.json.
+  SETTINGS_STAGED="$SETTINGS_FILE.tmp.$$"
+  TMP_FILES+=("$SETTINGS_STAGED")
+  cp "$SETTINGS_CANDIDATE" "$SETTINGS_STAGED"
+  mv "$SETTINGS_STAGED" "$SETTINGS_FILE"
   echo "[OK] Hooks removed from settings.json"
 fi
 
@@ -214,13 +229,14 @@ for retired in agents/code-reviewer.md agents/security-reviewer.md \
 done
 
 # --- Phase 4: Remove empty directories ---
-for dir in skills/commit skills/pr skills/verify skills/bootstrap-init \
-           skills/test skills/changelog skills/deps-check skills/doctor \
-           skills/bootstrap skills/harden skills hooks/scripts hooks/guard hooks agents hardening \
-           bootstrap-rules/common bootstrap-rules/typescript \
-           bootstrap-rules/python bootstrap-rules/golang bootstrap-rules \
-           bootstrap-templates; do
-  rmdir "$TARGET/$dir" 2>/dev/null || true
+# Walked bottom-up over the installed subtrees rather than listed by name: a
+# hardcoded list goes stale the moment a skill or a rules language is added, and
+# it never covered the __pycache__ directories the Python hooks leave behind.
+# rmdir only removes empty directories, so anything of the user's stays.
+for dir in skills hooks hardening bootstrap-rules bootstrap-templates agents; do
+  [[ -d "$TARGET/$dir" ]] || continue
+  find "$TARGET/$dir" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+  find "$TARGET/$dir" -depth -type d -exec rmdir {} + 2>/dev/null || true
 done
 
 echo ""
