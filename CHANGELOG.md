@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [2.0.0] — 2026-08-07
+
 ### Added
 - Hardening release documentation for `/bootstrap`, `/harden --baseline`, `/harden --strict`, `/harden --baseline --sandbox`, `/harden --check`, `/harden --remove`, and `/doctor`
 - Destructive operations guidance rule and project hardening profiles for baseline, strict, and explicit sandbox overlay workflows
@@ -46,6 +48,7 @@
 - Large-file thresholds reject `true` and `0`, which configured a one-line or always-on threshold
 - `remind-compact.sh` keeps its counter under `${XDG_RUNTIME_DIR:-$HOME/.cache}` rather than in world-writable `/tmp`
 - Hook wrappers resolve their own directory with builtins, so an empty `PATH` no longer makes them print an error
+- The `HookOutput` alias is written as `Optional[...]`, so importing the hook protocol no longer raises `TypeError` on Python 3.9 — the system Python on macOS and the floor the hooks are tested against
 
 ### Deprecated
 - Policy keys `production.awsAccountIds`, `commandGuard.parserUncertainty` and `commandGuard.infrastructureChecks` are ignored and no longer written by either profile. They stay in the schema — `additionalProperties: false` means removing them would invalidate every existing policy — and drop out of a managed policy the next time `/harden` rewrites it
