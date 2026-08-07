@@ -12,12 +12,17 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
+from typing import Optional
 
 from .decisions import Decision, DecisionKind
 
 
 HookPayload = dict[str, object]
-HookOutput = dict[str, object] | None
+# `Optional[...]` rather than `... | None`: these aliases are evaluated at import
+# time, where `from __future__ import annotations` does not reach, and PEP 604
+# unions only became a runtime expression in 3.10. The floor is 3.9, the system
+# Python on macOS.
+HookOutput = Optional[dict[str, object]]
 HookHandler = Callable[[HookPayload], HookOutput]
 
 
