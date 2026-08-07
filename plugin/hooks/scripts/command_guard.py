@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -16,41 +15,15 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from guard.context import from_hook_payload  # noqa: E402
-from guard.decisions import Decision, DecisionKind, combine  # noqa: E402
+from guard.decisions import Decision, combine  # noqa: E402
+from guard.edit_content import ReconstructedEdit, reconstruct_edit  # noqa: E402
+from guard.hook_io import decision_output, run_hook  # noqa: E402
+from guard.paths import resolve_file_path  # noqa: E402
 from guard.rules import evaluate  # noqa: E402
 from guard.secrets import evaluate as evaluate_secrets  # noqa: E402
 from guard.shell import parse  # noqa: E402
 import large_file_policy  # noqa: E402
 import post_write_warnings  # noqa: E402
-
-
-def decision_output(decision: Decision) -> dict[str, object] | None:
-    if decision.kind == DecisionKind.NONE:
-        return None
-
-    output: dict[str, object] = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-        }
-    }
-    hook_output = output["hookSpecificOutput"]
-    assert isinstance(hook_output, dict)
-
-    if decision.kind == DecisionKind.DENY:
-        hook_output["permissionDecision"] = "deny"
-        hook_output["permissionDecisionReason"] = decision.formatted_reason()
-        return output
-
-    if decision.kind == DecisionKind.ASK:
-        hook_output["permissionDecision"] = "ask"
-        hook_output["permissionDecisionReason"] = decision.formatted_reason()
-        return output
-
-    if decision.kind == DecisionKind.WARNING:
-        hook_output["additionalContext"] = decision.formatted_reason()
-        return output
-
-    return None
 
 
 def run(payload: dict[str, object]) -> dict[str, object] | None:
@@ -80,10 +53,37 @@ def run_bash_guard(payload: dict[str, object]) -> dict[str, object] | None:
 
 
 def run_pre_write_guard(payload: dict[str, object]) -> dict[str, object] | None:
-    secret_decision = evaluate_secrets(payload)
-    large_file_output = large_file_policy.run(payload)
+    reconstructed = reconstructed_edit(payload)
+    secret_decision = evaluate_secrets(payload, reconstructed)
+    large_file_output = large_file_policy.run(payload, reconstructed)
     large_file_decision = decision_from_hook_output(large_file_output)
     return decision_output(combine([secret_decision, large_file_decision]))
+
+
+def reconstructed_edit(payload: dict[str, object]) -> ReconstructedEdit | None:
+    """The Edit result, applied once for both rules instead of once each.
+
+    A reconstruction that fails is left to the rules: each already reports it in
+    its own terms, and redoing the work on that path costs nothing, because the
+    edit is not going to apply either.
+    """
+    if payload.get("tool_name") != "Edit":
+        return None
+
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+
+    raw_file_path = tool_input.get("file_path")
+    if not isinstance(raw_file_path, str) or not raw_file_path:
+        return None
+
+    cwd = payload.get("cwd")
+    cwd_path = Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
+    try:
+        return reconstruct_edit(resolve_file_path(raw_file_path, cwd_path), tool_input)
+    except (OSError, ValueError):
+        return None
 
 
 def decision_from_hook_output(output: dict[str, object] | None) -> Decision:
@@ -112,23 +112,7 @@ def string_value(value: object) -> str:
 
 
 def main() -> int:
-    try:
-        raw_input = sys.stdin.read()
-        if not raw_input.strip():
-            return 0
-
-        payload = json.loads(raw_input)
-        if not isinstance(payload, dict):
-            print("command_guard warning: hook payload must be a JSON object", file=sys.stderr)
-            return 0
-
-        output = run(payload)
-        if output is not None:
-            print(json.dumps(output, separators=(",", ":")))
-        return 0
-    except Exception as exc:  # noqa: BLE001 - hook must fail open to Claude permission flow.
-        print(f"command_guard warning: internal error: {exc}", file=sys.stderr)
-        return 0
+    return run_hook(run, name="command_guard")
 
 
 if __name__ == "__main__":

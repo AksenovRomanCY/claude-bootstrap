@@ -8,11 +8,24 @@ from pathlib import Path
 
 from .context import HookContext
 from .decisions import Decision
+from .options import has_option, positional_args
+from .paths import find_project_root_literal, normalize_existing_path, path_matches_patterns
+from .policy import load_policy, policy_section, string_list
 from .shell import CommandSegment, ShellParseResult
 
 
 DISK_TOOLS = {"wipefs", "fdisk", "parted"}
 GLOB_MARKERS = ("*", "?", "[")
+# Directories that hold the system or every user's data. Deleting one recursively
+# is never a step in a task, so these are denied rather than confirmed; anything
+# deeper (`/usr/local/share/foo`) stays an ask.
+SYSTEM_ROOTS = {
+    "/usr", "/etc", "/var", "/bin", "/sbin", "/lib", "/opt", "/boot", "/dev",
+    "/System", "/Library", "/home", "/Users", "/root",
+}
+# Used when the project has no policy, and kept in step with the shipped baseline
+# policy (plugin/hardening/defaults/baseline-policy.json).
+DEFAULT_SAFE_RECURSIVE_DELETE = (".cache", "dist", "build", "node_modules", "tmp")
 
 
 @dataclass(frozen=True)
@@ -27,13 +40,16 @@ class FilesystemContext:
     cwd: Path
     project_root: Path
     home: Path
+    safe_delete_patterns: tuple[str, ...] = DEFAULT_SAFE_RECURSIVE_DELETE
 
 
 def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
+    project_root = find_project_root_literal(context.cwd)
     fs_context = FilesystemContext(
         cwd=normalize_existing_path(context.cwd),
-        project_root=find_project_root(context.cwd),
+        project_root=project_root,
         home=Path.home(),
+        safe_delete_patterns=load_safe_delete_patterns(project_root),
     )
     decisions: list[Decision] = []
 
@@ -60,7 +76,7 @@ def evaluate_segment(segment: CommandSegment, context: FilesystemContext) -> lis
         decisions.append(Decision.deny("FS-DD-DEVICE", "Do not write directly to /dev devices with dd."))
     elif command == "rm":
         decisions.extend(evaluate_rm(segment, context))
-    elif command in {"chmod", "chown"} and has_recursive_flag(segment.args):
+    elif command in {"chmod", "chown"} and has_option(segment.args, ["--recursive"], short_letters="rR"):
         decisions.append(
             Decision.ask(
                 f"FS-{command.upper()}-RECURSIVE",
@@ -76,19 +92,28 @@ def is_disk_tool(command: str) -> bool:
 
 
 def dd_writes_device(args: list[str]) -> bool:
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token.startswith("of=/dev/") or token == "of=/dev":
-            return True
-        if token == "of" and index + 1 < len(args) and args[index + 1].startswith("/dev/"):
-            return True
-        index += 1
-    return False
+    # dd takes `of=path` only: there is no spelling where the operand and its
+    # value are separate words, so nothing else has to be considered.
+    return any(argument.startswith("of=/dev/") or argument == "of=/dev" for argument in args)
+
+
+def is_recursive(args: list[str]) -> bool:
+    """`rm -r` in any spelling: separate flags, a cluster, or long options.
+
+    `-f` is deliberately not required: recursion is what makes the command
+    dangerous, while `-f` only suppresses the prompts rm would ask itself.
+    """
+    return has_option(args, ["--recursive"], short_letters="rR")
+
+
+def load_safe_delete_patterns(project_root: Path) -> tuple[str, ...]:
+    """`paths.safeRecursiveDelete` from the project policy, else the shipped default."""
+    configured = string_list(policy_section(load_policy(project_root), "paths").get("safeRecursiveDelete"))
+    return tuple(configured) if configured else DEFAULT_SAFE_RECURSIVE_DELETE
 
 
 def evaluate_rm(segment: CommandSegment, context: FilesystemContext) -> list[Decision]:
-    if not rm_is_recursive_force(segment.args):
+    if not is_recursive(segment.args):
         return []
 
     path_args = positional_args(segment.args, set())
@@ -116,61 +141,12 @@ def evaluate_rm(segment: CommandSegment, context: FilesystemContext) -> list[Dec
             )
             continue
 
+        if target.path is not None and is_safe_rm_target(target.path, context):
+            continue
+
         decisions.append(Decision.ask("FS-RM-RF", f"Confirm recursive deletion of {raw_path}."))
 
     return decisions
-
-
-def rm_is_recursive_force(args: list[str]) -> bool:
-    recursive = False
-    force = False
-
-    for token in args:
-        if token == "--":
-            break
-        if token in {"-r", "-R", "--recursive"}:
-            recursive = True
-        elif token in {"-f", "--force"}:
-            force = True
-        elif token.startswith("-") and not token.startswith("--"):
-            flags = token[1:]
-            recursive = recursive or "r" in flags or "R" in flags
-            force = force or "f" in flags
-
-    return recursive and force
-
-
-def has_recursive_flag(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            break
-        if token in {"-R", "-r", "--recursive"}:
-            return True
-        if token.startswith("-") and not token.startswith("--") and ("R" in token[1:] or "r" in token[1:]):
-            return True
-    return False
-
-
-def positional_args(args: list[str], value_options: set[str]) -> list[str]:
-    positionals: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            positionals.extend(args[index + 1 :])
-            break
-        if token in value_options:
-            index += 2
-            continue
-        if token.startswith("--") and any(token.startswith(f"{option}=") for option in value_options):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        positionals.append(token)
-        index += 1
-    return positionals
 
 
 def normalize_target(raw_path: str, context: FilesystemContext) -> PathTarget:
@@ -194,6 +170,11 @@ def normalize_target(raw_path: str, context: FilesystemContext) -> PathTarget:
         absolute = os.path.join(str(context.cwd), expanded)
 
     normalized = os.path.normpath(absolute)
+    # POSIX keeps a leading `//` and normpath honours that, so `//usr` would slip
+    # past a comparison that `/usr` fails. `///` already collapses, so collapsing
+    # `//` too only makes the two spellings agree.
+    if normalized.startswith("//"):
+        normalized = "/" + normalized.lstrip("/")
     return PathTarget(raw=raw_path, path=Path(normalized))
 
 
@@ -220,16 +201,19 @@ def is_critical_rm_target(path: Path, context: FilesystemContext) -> bool:
         context.project_root.parent,
         context.project_root / ".git",
     }
-    return path in critical_paths
+    return path in critical_paths or path.as_posix() in SYSTEM_ROOTS
 
 
-def find_project_root(cwd: Path) -> Path:
-    current = normalize_existing_path(cwd)
-    for candidate in (current, *current.parents):
-        if (candidate / ".git").exists() or (candidate / ".claude").exists():
-            return candidate
-    return current
+def is_safe_rm_target(path: Path, context: FilesystemContext) -> bool:
+    """Build output the project itself declares disposable, such as `dist`.
 
-
-def normalize_existing_path(path: Path) -> Path:
-    return Path(os.path.normpath(os.path.abspath(str(path))))
+    Only inside the project, and never the project root: `paths.safeRecursiveDelete`
+    names generated directories, not whatever happens to share their name elsewhere.
+    """
+    if path == context.project_root:
+        return False
+    try:
+        path.relative_to(context.project_root)
+    except ValueError:
+        return False
+    return path_matches_patterns(path, context.project_root, context.safe_delete_patterns)

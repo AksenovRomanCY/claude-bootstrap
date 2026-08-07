@@ -9,6 +9,10 @@
     "version"
   ],
   "properties": {
+    "$schema": {
+      "description": "Optional editor annotation pointing at this schema. Allowed so an IDE-completed policy still validates.",
+      "type": "string"
+    },
     "version": {
       "description": "Versioned policy format. Version 1 is the initial baseline policy format.",
       "type": "integer",
@@ -65,12 +69,13 @@
           }
         },
         "awsAccountIds": {
-          "description": "AWS account IDs that should be treated as production.",
+          "description": "Deprecated and ignored: no guard rule reads the AWS account. Kept so existing policies still validate; remove it from yours.",
           "type": "array",
           "uniqueItems": true,
           "items": {
             "type": "string"
-          }
+          },
+          "deprecated": true
         }
       }
     },
@@ -80,7 +85,7 @@
       "additionalProperties": false,
       "properties": {
         "safeRecursiveDelete": {
-          "description": "Paths that may be considered lower risk for recursive deletion after confirmation.",
+          "description": "Project paths whose recursive deletion needs no confirmation, such as build output. Matched project-relative or by bare directory name; replaces the built-in list when set.",
           "type": "array",
           "uniqueItems": true,
           "items": {
@@ -89,6 +94,21 @@
         },
         "generated": {
           "description": "Glob patterns for generated or vendored files.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "secrets": {
+      "description": "Secret detection policy for Write and Edit guards.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowPaths": {
+          "description": "Glob patterns for files whose secret findings are reported as a warning instead of blocking, for example test fixtures and documentation samples.",
           "type": "array",
           "uniqueItems": true,
           "items": {
@@ -130,12 +150,13 @@
       "additionalProperties": false,
       "properties": {
         "parserUncertainty": {
-          "description": "Legacy compatibility setting. Unsupported shell parser constructs always require confirmation.",
+          "description": "Deprecated and ignored: unsupported shell parser constructs always require confirmation. Kept so existing policies still validate; remove it from yours.",
           "type": "string",
           "enum": [
             "warning",
             "ask"
-          ]
+          ],
+          "deprecated": true
         },
         "unknownEnvironment": {
           "description": "How production-sensitive operations behave when environment context is unknown.",
@@ -145,13 +166,18 @@
             "high-risk"
           ]
         },
+        "terraformWorkspaceCommand": {
+          "description": "Allow the guard to run `terraform workspace show` when .terraform/environment is missing. Off by default: the command can reach a remote backend from inside a hook.",
+          "type": "boolean"
+        },
         "infrastructureChecks": {
-          "description": "Infrastructure command families expected to receive stricter guard review.",
+          "description": "Deprecated and ignored: the infrastructure families a guard reviews are not configurable. Kept so existing policies still validate; remove it from yours.",
           "type": "array",
           "uniqueItems": true,
           "items": {
             "type": "string"
-          }
+          },
+          "deprecated": true
         }
       }
     },

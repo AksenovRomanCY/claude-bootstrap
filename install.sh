@@ -23,8 +23,20 @@ RETIRED_PATHS=(
   "skills/explain"
   "skills/fix-build"
   "skills/init"
+  # Superseded by command_guard.py, which judges the same commands and writes
+  # through the shared guard package instead of a second implementation.
+  "hooks/scripts/block-no-verify.sh"
+  "hooks/scripts/secret_guard.py"
 )
 RETIRED_DIRS=("agents")
+
+# Temporary files to remove however the script ends, including a failed `set -e`
+# abort: the settings candidate used to leak on every path but one.
+TMP_FILES=()
+cleanup() {
+  rm -f ${TMP_FILES[@]+"${TMP_FILES[@]}"}
+}
+trap cleanup EXIT
 
 # --- Defaults ---
 DRY_RUN=false
@@ -49,11 +61,11 @@ Installs to ~/.claude/:
 
 Options:
   --dry-run        Preview changes without installing
-  --force          Skip confirmation prompt
+  --force          Skip confirmation prompt, and install even if the backup fails
   --skip-hooks     Don't install hook scripts or merge settings.json
   --skip-skills    Don't install skills
   --skip-rules     Don't install rules library
-  --skip-hardening Don't install hardening profiles and helpers
+  --skip-hardening Don't install hardening profiles, helpers, or the /harden skill
   --help           Show this help message
 
 After install, run /bootstrap in any project to set up .claude/rules/
@@ -151,15 +163,28 @@ source_files() {
     ! -name '*.pyc'
 }
 
+# A component may exclude one relative subtree: the /harden skill lives under
+# skills/ but belongs to the hardening component, so --skip-hardening must leave
+# it out rather than install a skill whose assets are missing.
+is_excluded() {
+  local rel=$1 exclude=$2
+  [[ -n "$exclude" ]] && [[ "$rel" == "$exclude" || "$rel" == "$exclude/"* ]]
+}
+
 diff_component() {
-  local src_dir=$1 dst_dir=$2
+  local src_dir=$1 dst_dir=$2 exclude=${3:-}
   if [[ ! -d "$src_dir" ]]; then return; fi
   while IFS= read -r src_file; do
     local rel="${src_file#"$src_dir"/}"
+    if is_excluded "$rel" "$exclude"; then continue; fi
     local dst_file="$dst_dir/$rel"
     local label="${dst_dir#"$TARGET"/}/$rel"
     show_file_status "$src_file" "$dst_file" "$label"
   done < <(source_files "$src_dir")
+}
+
+skills_exclude() {
+  if [[ "$SKIP_HARDENING" == true ]]; then echo "harden"; fi
 }
 
 SETTINGS_FILE="$TARGET/settings.json"
@@ -315,7 +340,7 @@ echo "Changes:"
 should_install "hooks" && diff_component "$SOURCE/hooks/scripts" "$TARGET/hooks/scripts"
 should_install "hooks" && diff_component "$SOURCE/hooks/guard" "$TARGET/hooks/guard"
 should_install "hardening" && diff_component "$SOURCE/hardening" "$TARGET/hardening"
-should_install "skills" && diff_component "$SOURCE/skills" "$TARGET/skills"
+should_install "skills" && diff_component "$SOURCE/skills" "$TARGET/skills" "$(skills_exclude)"
 should_install "rules" && diff_component "$SOURCE/rules" "$TARGET/bootstrap-rules"
 diff_component "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates"
 
@@ -335,7 +360,13 @@ echo ""
 
 if should_install "hooks" && [[ -f "$HOOKS_FILE" ]]; then
   SETTINGS_CANDIDATE=$(mktemp)
-  build_settings_candidate "$SETTINGS_CANDIDATE"
+  TMP_FILES+=("$SETTINGS_CANDIDATE")
+  if ! build_settings_candidate "$SETTINGS_CANDIDATE" 2>/dev/null; then
+    echo "Error: could not read $SETTINGS_FILE as JSON." >&2
+    echo "Claude Code accepts comments and trailing commas there, but this installer needs strict JSON." >&2
+    echo "Remove any // comments and trailing commas, or move the file aside, then run install.sh again." >&2
+    exit 1
+  fi
   SETTINGS_LEGACY_COUNT=$(settings_legacy_count)
   SETTINGS_CUSTOM_COUNT=$(settings_custom_count)
   if [[ -f "$SETTINGS_FILE" ]]; then
@@ -396,11 +427,22 @@ if [[ -d "$TARGET" ]] && [[ $count_modified -gt 0 || ( "$SETTINGS_EXISTS" == tru
   BACKUP_DIR="$TARGET/backups"
   mkdir -p "$BACKUP_DIR"
   BACKUP_FILE="$BACKUP_DIR/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-  tar -czf "$BACKUP_FILE" \
-    --exclude='backups' \
-    -C "$(dirname "$TARGET")" \
-    "$(basename "$TARGET")" 2>/dev/null || true
-  echo "[OK] Backup: $BACKUP_FILE"
+  if backup_error=$(tar -czf "$BACKUP_FILE" \
+      --exclude='backups' \
+      -C "$(dirname "$TARGET")" \
+      "$(basename "$TARGET")" 2>&1); then
+    echo "[OK] Backup: $BACKUP_FILE"
+  else
+    # A half-written archive is worse than none: it looks like a rollback point.
+    rm -f "$BACKUP_FILE"
+    echo "[WARN] Backup failed: $BACKUP_FILE" >&2
+    [[ -n "$backup_error" ]] && echo "$backup_error" >&2
+    if ! $FORCE; then
+      echo "Nothing was changed. Fix the backup location or re-run with --force to install anyway." >&2
+      exit 1
+    fi
+    echo "[WARN] Continuing without a backup because --force was given." >&2
+  fi
 
   # Keep only last 5 backups
   find "$BACKUP_DIR" -name 'backup-*.tar.gz' -type f | sort -r | tail -n +6 | xargs rm -f 2>/dev/null || true
@@ -408,10 +450,11 @@ fi
 
 # --- Install ---
 copy_dir() {
-  local src=$1 dst=$2 label=$3
+  local src=$1 dst=$2 label=$3 exclude=${4:-}
   if [[ -d "$src" ]]; then
     while IFS= read -r src_file; do
       local rel="${src_file#"$src"/}"
+      if is_excluded "$rel" "$exclude"; then continue; fi
       local dst_file="$dst/$rel"
       mkdir -p "$(dirname "$dst_file")"
       cp "$src_file" "$dst_file"
@@ -426,7 +469,7 @@ if should_install "hooks"; then
   chmod +x "$TARGET/hooks/scripts/"*.sh 2>/dev/null || true
 fi
 should_install "hardening" && copy_dir "$SOURCE/hardening" "$TARGET/hardening" "hardening"
-should_install "skills" && copy_dir "$SOURCE/skills" "$TARGET/skills" "skills"
+should_install "skills" && copy_dir "$SOURCE/skills" "$TARGET/skills" "skills" "$(skills_exclude)"
 should_install "rules" && copy_dir "$SOURCE/rules" "$TARGET/bootstrap-rules" "bootstrap-rules (library)"
 copy_dir "$TEMPLATES_SOURCE" "$TARGET/bootstrap-templates" "bootstrap-templates"
 
@@ -450,12 +493,19 @@ if should_install "hooks" && [[ -f "$HOOKS_FILE" ]]; then
   mkdir -p "$TARGET"
   if [[ "$SETTINGS_WILL_CHANGE" != true ]]; then
     echo "[OK] settings.json hooks already up to date"
-  elif [[ ! -f "$SETTINGS_FILE" ]]; then
-    cp "$SETTINGS_CANDIDATE" "$SETTINGS_FILE"
-    echo "[OK] settings.json created with hooks"
   else
-    cp "$SETTINGS_CANDIDATE" "$SETTINGS_FILE"
-    echo "[OK] hooks migrated in settings.json"
+    # Copy beside the target, then rename: an interrupted `cp` onto settings.json
+    # itself would leave the user with a truncated settings file.
+    SETTINGS_STAGED="$SETTINGS_FILE.tmp.$$"
+    TMP_FILES+=("$SETTINGS_STAGED")
+    if [[ -f "$SETTINGS_FILE" ]]; then
+      settings_message="[OK] hooks migrated in settings.json"
+    else
+      settings_message="[OK] settings.json created with hooks"
+    fi
+    cp "$SETTINGS_CANDIDATE" "$SETTINGS_STAGED"
+    mv "$SETTINGS_STAGED" "$SETTINGS_FILE"
+    echo "$settings_message"
   fi
 fi
 

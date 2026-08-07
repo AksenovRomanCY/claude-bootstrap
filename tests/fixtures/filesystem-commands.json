@@ -61,19 +61,100 @@
   },
   {
     "name": "rm rf regular relative directory asks",
+    "command": "rm -rf src",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm r without force still asks",
+    "command": "rm -r src",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm recursive long option without force still asks",
+    "command": "rm --recursive src",
+    "decision": "ask",
+    "rule": "FS-RM-RF"
+  },
+  {
+    "name": "rm rf generated directory is not questioned",
+    "command": "rm -rf dist",
+    "decision": "none"
+  },
+  {
+    "name": "rm r build directory is not questioned",
+    "command": "rm -r build",
+    "decision": "none"
+  },
+  {
+    "name": "rm rf node modules is not questioned",
+    "command": "rm -rf node_modules",
+    "decision": "none"
+  },
+  {
+    "name": "rm rf generated directory with redirections is not questioned",
+    "command": "rm -rf dist >/dev/null 2>&1",
+    "decision": "none"
+  },
+  {
+    "name": "policy safe list replaces the built-in one",
+    "command": "rm -rf artifacts",
+    "decision": "none",
+    "policy": {
+      "paths": {
+        "safeRecursiveDelete": [
+          "artifacts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "policy safe list makes an unlisted generated directory ask",
     "command": "rm -rf dist",
     "decision": "ask",
-    "rule": "FS-RM-RF"
+    "rule": "FS-RM-RF",
+    "policy": {
+      "paths": {
+        "safeRecursiveDelete": [
+          "artifacts"
+        ]
+      }
+    }
   },
   {
-    "name": "rm rf build directory still asks",
-    "command": "rm -rf build",
-    "decision": "ask",
-    "rule": "FS-RM-RF"
+    "name": "rm rf system directory denies",
+    "command": "rm -rf /etc",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
   },
   {
-    "name": "rm rf node modules still asks",
-    "command": "rm -rf node_modules",
+    "name": "rm rf usr denies",
+    "command": "rm -rf /usr",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf user home root denies",
+    "command": "rm -rf /Users",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf doubled root slash denies",
+    "command": "rm -rf //",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf doubled slash system directory denies",
+    "command": "rm -rf //usr",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "rm rf below a system directory still asks",
+    "command": "rm -rf /usr/local/share/stale",
     "decision": "ask",
     "rule": "FS-RM-RF"
   },
@@ -91,7 +172,7 @@
   },
   {
     "name": "rm rf normalized child path asks",
-    "command": "rm -rf dist/../build",
+    "command": "rm -rf dist/../src",
     "decision": "ask",
     "rule": "FS-RM-RF"
   },
@@ -115,7 +196,7 @@
   },
   {
     "name": "rm rf symlink-like path asks",
-    "command": "rm -rf linked/../build",
+    "command": "rm -rf linked/../src",
     "decision": "ask",
     "rule": "FS-RM-RF"
   },
@@ -189,5 +270,41 @@
     "name": "non recursive rm is no decision",
     "command": "rm dist/file.txt",
     "decision": "none"
+  },
+  {
+    "name": "quoted separator does not hide rm rf root",
+    "command": "rm -rf ';' /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "quoted dangerous command in echo is data",
+    "command": "echo 'rm -rf /'",
+    "decision": "none",
+    "rule": ""
+  },
+  {
+    "name": "exec wrapper still denies rm rf root",
+    "command": "exec rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "timeout wrapper still denies rm rf root",
+    "command": "timeout 60 rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "nice wrapper still denies rm rf root",
+    "command": "nice -n 10 rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
+  },
+  {
+    "name": "sudo long option with value still denies rm rf root",
+    "command": "sudo --user root rm -rf /",
+    "decision": "deny",
+    "rule": "FS-RM-RF-CRITICAL"
   }
 ]

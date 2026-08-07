@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import subprocess
 import sys
@@ -7,23 +6,27 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
-HOOKS_DIR = ROOT / "plugin" / "hooks"
-SECRET_GUARD = HOOKS_DIR / "scripts" / "secret_guard.py"
-SECRET_FIXTURES = ROOT / "tests" / "fixtures" / "secret-patterns.json"
+from helpers import (  # noqa: E402
+    SCRIPTS_DIR,
+    edit_payload,
+    hook_payload,
+    init_git_repo,
+    load_fixtures,
+    load_script,
+    run_script,
+    write_policy,
+)
 
-if str(HOOKS_DIR) not in sys.path:
-    sys.path.insert(0, str(HOOKS_DIR))
+from guard.decisions import DecisionKind  # noqa: E402
+from guard.secrets import FileClass, classify_file, detect_secrets, evaluate  # noqa: E402
 
-from guard.decisions import DecisionKind
-from guard.secrets import FileClass, classify_file, detect_secrets, evaluate
 
-spec = importlib.util.spec_from_file_location("secret_guard", SECRET_GUARD)
-secret_guard = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules["secret_guard"] = secret_guard
-spec.loader.exec_module(secret_guard)
+# The standalone secret_guard.py entrypoint is retired: command_guard.py runs
+# the same rule for Write and Edit payloads.
+COMMAND_GUARD = SCRIPTS_DIR / "command_guard.py"
+command_guard = load_script(COMMAND_GUARD)
 
 
 AWS_KEY = "AKIA1234567890ABCDEF"
@@ -34,55 +37,32 @@ DUMMY_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\ndummy-placeholder-test-key\n--
 
 
 def write_payload(path, content, cwd, tool_name="Write"):
-    tool_input = {"file_path": str(path)}
-    if tool_name == "Write":
-        tool_input["content"] = content
-    else:
-        tool_input["new_string"] = content
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": tool_name,
-        "tool_input": tool_input,
-        "cwd": str(cwd),
-    }
-
-
-def edit_payload(path, old_string, new_string, cwd, replace_all=False):
-    return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Edit",
-        "tool_input": {
-            "file_path": str(path),
-            "old_string": old_string,
-            "new_string": new_string,
-            "replace_all": replace_all,
-        },
-        "cwd": str(cwd),
-    }
+    key = "content" if tool_name == "Write" else "new_string"
+    return hook_payload("PreToolUse", tool_name, {"file_path": str(path), key: content}, cwd)
 
 
 class SecretGuardTests(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.project = Path(self.tmpdir.name)
-        subprocess.run(["git", "init"], cwd=self.project, text=True, capture_output=True, check=True)
+        init_git_repo(self.project)
         (self.project / ".gitignore").write_text(".env\nignored/\n", encoding="utf-8")
         self.tracked_file = self.project / "src" / "app.py"
         self.tracked_file.parent.mkdir()
         self.tracked_file.write_text("print('hello')\n", encoding="utf-8")
-        subprocess.run(["git", "add", ".gitignore", "src/app.py"], cwd=self.project, text=True, capture_output=True, check=True)
+        subprocess.run(  # noqa: S603 - fixture setup, not the code under test
+            ["git", "add", ".gitignore", "src/app.py"],
+            cwd=self.project,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
 
     def tearDown(self):
         self.tmpdir.cleanup()
 
     def run_guard(self, payload):
-        return subprocess.run(
-            [sys.executable, str(SECRET_GUARD)],
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        return run_script(COMMAND_GUARD, payload)
 
     def hook_output(self, completed):
         self.assertEqual(completed.returncode, 0)
@@ -90,7 +70,7 @@ class SecretGuardTests(unittest.TestCase):
         return json.loads(completed.stdout)["hookSpecificOutput"]
 
     def test_pattern_fixtures(self):
-        fixtures = json.loads(SECRET_FIXTURES.read_text(encoding="utf-8"))
+        fixtures = load_fixtures("secret-patterns.json")
 
         for fixture in fixtures:
             with self.subTest(fixture["name"]):
@@ -99,6 +79,13 @@ class SecretGuardTests(unittest.TestCase):
                     self.assertEqual(findings, [])
                     continue
                 self.assertTrue(any(finding.rule_id == fixture["rule"] for finding in findings))
+
+                # The rule alone says nothing about severity: a deny silently
+                # downgraded to a warning would still match the id.
+                target = self.project / "src" / "fixture.py"
+                decision = evaluate(write_payload(target, fixture["content"], self.project))
+                self.assertEqual(decision.kind, DecisionKind(fixture["decision"]))
+                self.assertIn(f"[{fixture['rule']}]", decision.formatted_reason())
 
     def test_tracked_private_key_is_denied_before_write(self):
         completed = self.run_guard(write_payload(self.tracked_file, PRIVATE_KEY, self.project))
@@ -280,18 +267,94 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(decision.kind, DecisionKind.NONE)
 
     def test_malformed_json_fails_open_without_content(self):
-        completed = subprocess.run(
-            [sys.executable, str(SECRET_GUARD)],
-            input="{invalid",
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        completed = run_script(COMMAND_GUARD, "{invalid")
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout, "")
-        self.assertIn("secret_guard warning", completed.stderr)
+        self.assertIn("command_guard warning", completed.stderr)
         self.assertNotIn("invalid", completed.stderr)
+
+    def write_policy(self, policy):
+        write_policy(self.project, policy)
+
+    def test_edit_removing_an_existing_secret_is_allowed(self):
+        self.tracked_file.write_text(f'key = "{AWS_KEY}"\n', encoding="utf-8")
+
+        decision = evaluate(
+            edit_payload(self.tracked_file, f'key = "{AWS_KEY}"', 'key = os.environ["KEY"]', self.project)
+        )
+
+        self.assertEqual(decision.kind, DecisionKind.NONE)
+
+    def test_edit_elsewhere_in_a_file_holding_a_secret_is_allowed(self):
+        self.tracked_file.write_text(f'key = "{AWS_KEY}"\nvalue = 1\n', encoding="utf-8")
+
+        decision = evaluate(edit_payload(self.tracked_file, "value = 1", "value = 2", self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.NONE)
+
+    def test_edit_introducing_a_secret_is_denied(self):
+        self.tracked_file.write_text("value = 1\n", encoding="utf-8")
+
+        decision = evaluate(edit_payload(self.tracked_file, "value = 1", f'key = "{AWS_KEY}"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+        self.assertEqual(decision.rule_id, "SECRET-AWS-ACCESS-KEY")
+
+    def test_edit_introducing_a_second_secret_class_is_denied(self):
+        self.tracked_file.write_text(f'key = "{AWS_KEY}"\nvalue = 1\n', encoding="utf-8")
+
+        decision = evaluate(edit_payload(self.tracked_file, "value = 1", f'token = "{GITHUB_PAT}"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+        self.assertEqual(decision.rule_id, "SECRET-GITHUB-PAT")
+
+    def test_allow_paths_downgrades_to_warning(self):
+        self.write_policy({"version": 1, "secrets": {"allowPaths": ["tests/fixtures/**"]}})
+        fixture = self.project / "tests" / "fixtures" / "keys.json"
+        fixture.parent.mkdir(parents=True)
+
+        decision = evaluate(write_payload(fixture, f'{{"key": "{AWS_KEY}"}}', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.WARNING)
+        self.assertEqual(decision.rule_id, "SECRET-ALLOWED-PATH")
+
+    def test_allow_paths_does_not_affect_other_files(self):
+        self.write_policy({"version": 1, "secrets": {"allowPaths": ["tests/fixtures/**"]}})
+
+        decision = evaluate(write_payload(self.tracked_file, f'key = "{AWS_KEY}"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+
+    def test_strict_format_key_containing_a_marker_is_denied(self):
+        decision = evaluate(write_payload(self.tracked_file, 'key = "AKIATESTQWERTY123456"', self.project))
+
+        self.assertEqual(decision.kind, DecisionKind.DENY)
+        self.assertEqual(decision.rule_id, "SECRET-AWS-ACCESS-KEY")
+
+    def test_credential_url_marker_in_host_does_not_suppress_detection(self):
+        content = "DATABASE_URL=postgres://ci:R3alPassw0rd@db-test.acme.internal/app"
+
+        self.assertEqual([finding.rule_id for finding in detect_secrets(content)], ["SECRET-CREDENTIAL-URL"])
+
+    def test_credential_url_placeholder_password_is_ignored(self):
+        content = "DATABASE_URL=postgres://ci:your-password-here@db.acme.internal/app"
+
+        self.assertEqual(detect_secrets(content), [])
+
+    def test_environment_reference_is_not_a_generic_secret(self):
+        for content in (
+            "const apiKey = process.env.API_KEY_PRODUCTION;",
+            "password = getPasswordFromVaultService",
+            "api_key = $SOME_ENV_VARIABLE_NAME_HERE",
+        ):
+            with self.subTest(content):
+                self.assertEqual(detect_secrets(content), [])
+
+    def test_unquoted_literal_is_still_a_generic_secret(self):
+        content = "API_TOKEN=superSecretValue1234567890"
+
+        self.assertEqual([finding.rule_id for finding in detect_secrets(content)], ["SECRET-GENERIC-LITERAL"])
 
 
 if __name__ == "__main__":

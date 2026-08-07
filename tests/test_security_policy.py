@@ -1,22 +1,20 @@
 import copy
-import importlib.util
 import json
 import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
-APPLY_PROFILE = ROOT / "plugin" / "hardening" / "apply_profile.py"
-SCHEMA = ROOT / "plugin" / "hardening" / "security-policy.schema.json"
-DEFAULT_POLICY = ROOT / "plugin" / "hardening" / "defaults" / "baseline-policy.json"
-STRICT_POLICY = ROOT / "plugin" / "hardening" / "defaults" / "strict-policy.json"
+from helpers import HARDENING_DIR, load_script  # noqa: E402
 
-spec = importlib.util.spec_from_file_location("apply_profile", APPLY_PROFILE)
-apply_profile = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules["apply_profile"] = apply_profile
-spec.loader.exec_module(apply_profile)
+
+APPLY_PROFILE = HARDENING_DIR / "apply_profile.py"
+SCHEMA = HARDENING_DIR / "security-policy.schema.json"
+DEFAULT_POLICY = HARDENING_DIR / "defaults" / "baseline-policy.json"
+STRICT_POLICY = HARDENING_DIR / "defaults" / "strict-policy.json"
+
+apply_profile = load_script(APPLY_PROFILE)
 
 
 class SecurityPolicySchemaTests(unittest.TestCase):
@@ -34,6 +32,28 @@ class SecurityPolicySchemaTests(unittest.TestCase):
     def test_strict_policy_matches_schema(self):
         self.validate(self.strict_policy)
         self.assertEqual(self.strict_policy["profile"], "strict")
+
+    def test_deprecated_keys_are_gone_from_the_shipped_policies(self):
+        for policy in (self.policy, self.strict_policy):
+            self.assertNotIn("awsAccountIds", policy.get("production", {}))
+            self.assertNotIn("parserUncertainty", policy.get("commandGuard", {}))
+            self.assertNotIn("infrastructureChecks", policy.get("commandGuard", {}))
+
+    def test_a_policy_written_by_an_older_version_still_validates(self):
+        # `additionalProperties: false` means removing the keys outright would
+        # make every existing policy invalid, so they stay in the schema, marked
+        # deprecated and ignored, and drop out when /harden rewrites the policy.
+        policy = copy.deepcopy(self.policy)
+        policy.setdefault("production", {})["awsAccountIds"] = ["123456789012"]
+        policy.setdefault("commandGuard", {})["parserUncertainty"] = "ask"
+        policy["commandGuard"]["infrastructureChecks"] = ["terraform"]
+
+        self.validate(policy)
+
+        for section, key in (("production", "awsAccountIds"), ("commandGuard", "parserUncertainty"), ("commandGuard", "infrastructureChecks")):
+            node = self.schema["properties"][section]["properties"][key]
+            self.assertTrue(node["deprecated"])
+            self.assertIn("ignored", node["description"].lower())
 
     def test_schema_allows_known_profiles(self):
         profiles = self.schema["properties"]["profile"]["enum"]

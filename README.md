@@ -170,13 +170,15 @@ Baseline prompts rather than denies on credential reads because legitimate work 
 
 `/harden --baseline --sandbox` and `/harden --strict --sandbox` apply `plugin/hardening/profiles/sandbox.settings.json` as an explicit overlay for Claude Code's built-in Bash sandbox. The overlay writes only `.claude/settings.json` sandbox configuration, sets `failIfUnavailable`, disables unsandboxed fallback, and denies common credential files and environment variables to sandboxed commands. Native Windows is not supported by Claude Code's sandbox; use WSL2, a container, macOS, or Linux. `/harden --remove-sandbox` removes only sandbox entries managed by claude-bootstrap.
 
+Secret detection scans what a write introduces: an `Edit` is judged by the findings it adds, so an edit that removes a key, or that touches an unrelated line in a file that already holds one, is not blocked. Well-formed keys (`AKIA…`, `ghp_…`, `glpat-…`, `xox…`) are reported even when they read as samples, because the format alone identifies them. Set `secrets.allowPaths` in `.claude/security-policy.json` to glob patterns for fixture or documentation files whose findings should be a warning instead of a block.
+
 Sandbox may break commands that need credentials or external resources, including `gh`, `kubectl`, AWS CLI, package publication, and private registry access. Use Claude Code's `/sandbox` for dependency and runtime diagnostics.
 
 | Behavior | Baseline | Strict |
 | --- | --- | --- |
 | Bypass permissions | Disabled | Disabled |
 | Credential file reads (`.env`, `~/.ssh`, cloud creds) | Permission prompt | Denied |
-| Parser uncertainty | Warning context | Permission prompt |
+| Parser uncertainty | Permission prompt | Permission prompt |
 | Infrastructure operations | Prompt or deny when production is detected | More prompts; unknown environment is high risk |
 | Destructive database commands | No static profile decision | Deny high-confidence destructive CLI operations |
 | Large files | Standard thresholds | Lower thresholds |

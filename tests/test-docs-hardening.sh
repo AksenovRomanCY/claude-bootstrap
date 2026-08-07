@@ -92,7 +92,29 @@ assert_contains "$CHANGELOG" "external guard integration remains optional future
 assert_contains "$CHANGELOG" "External guard integration documented as optional follow-up work" "CHANGELOG documents optional external guard follow-up"
 assert_contains "$CHANGELOG" "native Windows sandbox limits" "CHANGELOG documents platform limitation"
 assert_contains "$CHANGELOG" "CI secret scanning" "CHANGELOG documents scanner boundary"
-assert_contains "$VERSION_FILE" "1.3.0" "Task 21 does not bump VERSION"
+# VERSION is checked for shape and ordering rather than pinned to one release:
+# a pin turns every legitimate bump into a failing test.
+VERSION_VALUE="$(tr -d '[:space:]' < "$VERSION_FILE")"
+if [[ "$VERSION_VALUE" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+  pass "VERSION is valid semver"
+else
+  fail "VERSION is valid semver"
+fi
+
+CHANGELOG_VERSION="$(grep -Eo '^## \[?[0-9]+\.[0-9]+\.[0-9]+\]?' "$CHANGELOG" | head -1 | tr -cd '0-9.')"
+if [[ -z "$CHANGELOG_VERSION" ]]; then
+  fail "CHANGELOG has a released version heading"
+else
+  pass "CHANGELOG has a released version heading"
+  # sort -V puts the smaller version first: VERSION must not be behind the
+  # newest release the CHANGELOG already documents.
+  lowest="$(printf '%s\n%s\n' "$VERSION_VALUE" "$CHANGELOG_VERSION" | sort -V | head -1)"
+  if [[ "$VERSION_VALUE" == "$CHANGELOG_VERSION" || "$lowest" == "$CHANGELOG_VERSION" ]]; then
+    pass "VERSION is not behind the newest CHANGELOG entry"
+  else
+    fail "VERSION is not behind the newest CHANGELOG entry"
+  fi
+fi
 
 assert_not_contains "$README" "claude-bootstrap implements its own sandbox" "README must not claim custom sandbox implementation"
 assert_not_contains "$SETTINGS_HOOKS" "externalGuard" "manual hook config must not reference externalGuard"

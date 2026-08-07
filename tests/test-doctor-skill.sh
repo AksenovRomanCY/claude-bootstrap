@@ -41,8 +41,39 @@ assert_contains "$SKILL" "read-only health check" "doctor documents read-only he
 assert_contains "$SKILL" "python3 --version" "doctor checks Python version"
 assert_contains "$SKILL" "Python is missing" "doctor continues when Python is missing"
 assert_contains "$SKILL" "hooks/scripts/command_guard.py" "doctor checks installed command guard path"
-assert_contains "$SKILL" "hooks/scripts/secret_guard.py" "doctor checks installed hook script paths"
+assert_contains "$SKILL" "hooks/scripts/post_write_warnings.py" "doctor checks installed hook script paths"
 assert_contains "$SKILL" "hooks/guard/context.py" "doctor checks installed guard module paths"
+
+# The inventory drifted once already: database.py and edit_content.py are hard
+# imports, and a partial install without them disables every guard silently.
+guard_total=0
+for module in "$ROOT"/plugin/hooks/guard/*.py; do
+  guard_total=$((guard_total + 1))
+  name="$(basename "$module")"
+  if grep -Fq -- "hooks/guard/$name" "$SKILL"; then
+    pass "doctor inventory lists guard module $name"
+  else
+    fail "doctor inventory should list guard module $name"
+  fi
+done
+
+script_total=0
+for script in "$ROOT"/plugin/hooks/scripts/*.py "$ROOT"/plugin/hooks/scripts/*.sh; do
+  script_total=$((script_total + 1))
+  name="$(basename "$script")"
+  if grep -Fq -- "hooks/scripts/$name" "$SKILL"; then
+    pass "doctor inventory lists hook script $name"
+  else
+    fail "doctor inventory should list hook script $name"
+  fi
+done
+
+hook_total=$((guard_total + script_total))
+if grep -Fq -- "Hooks:      $hook_total/$hook_total files" "$SKILL"; then
+  pass "doctor reports the real hook file count ($hook_total)"
+else
+  fail "doctor should report $hook_total/$hook_total hook files"
+fi
 assert_contains "$SKILL" "PostToolUse\` has entries for \`Write|Edit\` matcher" "doctor checks active PostToolUse matcher"
 assert_contains "$SKILL" "hardening/profiles/baseline.settings.json" "doctor checks baseline profile"
 assert_contains "$SKILL" "hardening/profiles/strict.settings.json" "doctor checks strict profile"

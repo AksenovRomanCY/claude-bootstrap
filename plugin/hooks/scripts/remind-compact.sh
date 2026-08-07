@@ -5,7 +5,11 @@
 
 # Use CLAUDE_SESSION_ID if available, fallback to parent PID (Claude Code process)
 SESSION_ID="${CLAUDE_SESSION_ID:-$PPID}"
-COUNTER_FILE="/tmp/claude-compact-counter-${SESSION_ID}"
+# Per-user state directory: /tmp is world-writable, so another user on a shared
+# machine could pre-create the counter file and own this session's state.
+STATE_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache}/claude-bootstrap"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+COUNTER_FILE="$STATE_DIR/compact-counter-${SESSION_ID}"
 
 # Initialize counter if it doesn't exist
 if [ ! -f "$COUNTER_FILE" ]; then

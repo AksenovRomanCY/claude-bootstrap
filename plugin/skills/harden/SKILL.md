@@ -43,9 +43,9 @@ Default: `/harden` is the same as `/harden --baseline`.
    - Run every project-modifying command from the resolved project root
 
 3. **Find installed assets**
-   - Prefer plugin assets when `$CLAUDE_PLUGIN_DIR` is set:
-     - `$CLAUDE_PLUGIN_DIR/hardening/apply_profile.py`
-     - `$CLAUDE_PLUGIN_DIR/rules/common/destructive-operations.md`
+   - Prefer plugin assets when `$CLAUDE_PLUGIN_ROOT` (or legacy `$CLAUDE_PLUGIN_DIR`) is set:
+     - `${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hardening/apply_profile.py`
+     - `${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/rules/common/destructive-operations.md`
    - Otherwise use manual install assets:
      - `~/.claude/hardening/apply_profile.py`
      - `~/.claude/bootstrap-rules/common/destructive-operations.md`
@@ -100,14 +100,14 @@ Default: `/harden` is the same as `/harden --baseline`.
    - Stop after remove-sandbox mode
    - If `$ARGUMENTS` contains `--remove`, preview removal first:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove --dry-run
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --remove --dry-run
      ```
    - Explain that removal only uses `.claude/harden-state.json`
    - Confirm that `.claude/rules/` is not removed
    - If conflicts are reported, stop and explain that `--force` is required for modified managed values
    - Ask for explicit confirmation before running:
      ```bash
-     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --profile "$PROFILE" --remove
+     cd "$PROJECT_ROOT" && python3 "$APPLY_PROFILE" --remove
      ```
    - Use `--force` only when the user explicitly requested it
    - Summarize removed managed settings, policy removal, and state removal

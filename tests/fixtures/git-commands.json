@@ -7,6 +7,39 @@
     "rule": "GIT-PROTECTED-BRANCH"
   },
   {
+    "name": "global option before the commit subcommand",
+    "command": "git --no-pager commit --no-verify -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "hook bypass after another command in the chain",
+    "command": "echo ok && git commit --no-verify -m test",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "the option only matters to git",
+    "command": "some-tool --no-verify",
+    "branch": "feature",
+    "decision": "none"
+  },
+  {
+    "name": "no-verify inside a git log pattern is data",
+    "command": "git log --grep=\"--no-verify\"",
+    "branch": "feature",
+    "decision": "none"
+  },
+  {
+    "name": "protected branch force push with output redirected",
+    "command": "git push --force origin main > push.log",
+    "branch": "feature",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
     "name": "protected branch force lease current",
     "command": "git push --force-with-lease",
     "branch": "main",
@@ -209,5 +242,35 @@
     "branch": "feature",
     "decision": "deny",
     "rule": "GIT-PUSH-MIRROR"
+  },
+  {
+    "name": "line continuation keeps force push deny",
+    "command": "git push \\\n  --force origin main",
+    "decision": "deny",
+    "rule": "GIT-PROTECTED-BRANCH"
+  },
+  {
+    "name": "config hooks path bypass denies",
+    "command": "git -c core.hooksPath=/dev/null commit -m x",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "config env hooks path bypass denies",
+    "command": "git --config-env=core.hooksPath=EVIL commit -m x",
+    "decision": "deny",
+    "rule": "GIT-HOOK-BYPASS"
+  },
+  {
+    "name": "executing config override asks",
+    "command": "git -c core.pager=cat log",
+    "decision": "ask",
+    "rule": "GIT-CONFIG-OVERRIDE"
+  },
+  {
+    "name": "harmless config override passes",
+    "command": "git -c user.name=Bot commit -m x",
+    "decision": "none",
+    "rule": ""
   }
 ]

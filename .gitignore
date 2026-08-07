@@ -14,6 +14,8 @@ Thumbs.db
 /tmp/
 *.tmp
 *.bak
+# Backups written by /harden and the installer
+*.backup-*
 
 # Python
 __pycache__/

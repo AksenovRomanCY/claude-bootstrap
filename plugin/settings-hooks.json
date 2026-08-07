@@ -38,6 +38,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/check-guard-runtime.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

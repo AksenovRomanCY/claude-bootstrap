@@ -1,0 +1,125 @@
+[
+  {
+    "name": "drop database asks under the default policy",
+    "command": "psql -c 'DROP DATABASE app'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "drop database denies when the policy says deny",
+    "command": "psql -c 'DROP DATABASE app'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "deny"
+      }
+    },
+    "decision": "deny",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "database rules are off until the policy enables them",
+    "command": "psql -c 'DROP DATABASE app'",
+    "decision": "none"
+  },
+  {
+    "name": "drop table through the long option",
+    "command": "psql --command='DROP TABLE users'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "mysql execute option",
+    "command": "mysql -e 'TRUNCATE TABLE sessions'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "truncate without the table keyword",
+    "command": "mysql -e 'TRUNCATE sessions'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "the mysql truncate function is not the truncate statement",
+    "command": "mysql -e 'SELECT truncate(1.75, 1)'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "none"
+  },
+  {
+    "name": "sqlite positional statement",
+    "command": "sqlite3 app.db 'DROP TABLE users'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "prisma migrate reset",
+    "command": "prisma migrate reset",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "alembic downgrade to base",
+    "command": "alembic downgrade base",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "ask",
+    "rule": "DB-DESTRUCTIVE"
+  },
+  {
+    "name": "a read query is not destructive",
+    "command": "psql -c 'SELECT count(*) FROM users'",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "none"
+  },
+  {
+    "name": "a downgrade by one revision is not a reset",
+    "command": "alembic downgrade -1",
+    "policy": {
+      "database": {
+        "destructiveOperations": "ask"
+      }
+    },
+    "decision": "none"
+  }
+]

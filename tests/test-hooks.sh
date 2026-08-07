@@ -53,7 +53,7 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   fi
 
   if [[ "$(basename "$config")" == "hooks.json" ]]; then
-    expected_command='python3 "$CLAUDE_PLUGIN_DIR/hooks/scripts/command_guard.py"'
+    expected_command='python3 "${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PLUGIN_DIR}/hooks/scripts/command_guard.py"'
   else
     expected_command='python3 ~/.claude/hooks/scripts/command_guard.py'
   fi
@@ -138,10 +138,19 @@ for config in "$PLUGIN_HOOKS_JSON" "$SETTINGS_HOOKS_JSON"; do
   fi
 done
 
+# Bare $CLAUDE_PLUGIN_DIR (without the ${CLAUDE_PLUGIN_ROOT:-...} fallback) is a
+# fail-closed path: if the variable is unset, python3 exits 2 and PreToolUse denies.
+if grep -q 'CLAUDE_PLUGIN_DIR/' "$PLUGIN_HOOKS_JSON"; then
+  fail "hooks.json should not use bare \$CLAUDE_PLUGIN_DIR without CLAUDE_PLUGIN_ROOT fallback"
+else
+  pass "hooks.json has no bare \$CLAUDE_PLUGIN_DIR usage"
+fi
+
 echo ""
 
 # --------------------------------------------------
 echo "command_guard.py"
+
 # --------------------------------------------------
 
 INPUT='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m test"}}'
@@ -177,7 +186,17 @@ OUTPUT=$(echo "$INPUT" | python3 "$HOOKS/large_file_policy.py" 2>&1)
 echo "$OUTPUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' > /dev/null && pass "huge Write asks" || fail "huge Write should ask"
 
 # Compatibility wrapper should still call the new policy and never block with exit 2
-run_hook "block-large-files.sh" "$INPUT" > /dev/null 2>&1 && pass "compatibility wrapper exits 0" || fail "compatibility wrapper should exit 0"
+WRAPPER_OUTPUT=$(run_hook "block-large-files.sh" "$INPUT" 2>/dev/null) && pass "compatibility wrapper exits 0" || fail "compatibility wrapper should exit 0"
+# Exiting 0 is not enough: the wrapper has to actually reach the policy.
+echo "$WRAPPER_OUTPUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' > /dev/null \
+  && pass "compatibility wrapper still produces a decision" \
+  || fail "compatibility wrapper should still produce a decision"
+
+# Without an interpreter the guard is off, and being off must be silent and open.
+# The interpreter is addressed absolutely: an empty PATH also hides bash itself.
+WRAPPER_OUTPUT=$(echo "$INPUT" | PATH="" "${BASH:-/bin/bash}" "$HOOKS/block-large-files.sh" 2>&1) && wrapper_status=0 || wrapper_status=$?
+[[ $wrapper_status -eq 0 ]] && pass "compatibility wrapper exits 0 without python3" || fail "compatibility wrapper should exit 0 without python3"
+[[ -z "$WRAPPER_OUTPUT" ]] && pass "compatibility wrapper is silent without python3" || fail "compatibility wrapper should be silent without python3"
 
 # Should pass: non-Write/Edit tool
 INPUT='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hello"}}'
@@ -186,35 +205,25 @@ echo "$INPUT" | python3 "$HOOKS/large_file_policy.py" > /dev/null 2>&1 && pass "
 echo ""
 
 # --------------------------------------------------
-echo "block-no-verify.sh"
+echo "retired scripts"
 # --------------------------------------------------
 
-# Should block: git commit/push hook bypass
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit --no-verify -m test")" "git commit --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -m test --no-verify")" "git commit trailing --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git --no-pager commit --no-verify")" "git --no-pager commit --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git push origin main --no-verify")" "git push --no-verify"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -n -m test")" "git commit -n"
-expect_hook_block "block-no-verify.sh" "$(bash_input "git commit -nm test")" "git commit bundled -n"
-expect_hook_block "block-no-verify.sh" "$(bash_input "/usr/bin/git commit -n -m test")" "absolute git commit -n"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git push -n origin main")" "git push -n dry-run"
-expect_hook_block "block-no-verify.sh" "$(bash_input "HUSKY=0 git commit -m test")" "HUSKY=0 git commit"
-expect_hook_block "block-no-verify.sh" "$(bash_input "HUSKY=0 git push origin main")" "HUSKY=0 git push"
-expect_hook_block "block-no-verify.sh" "$(bash_input "SKIP=pre-commit git commit -m test")" "SKIP git commit"
-expect_hook_block "block-no-verify.sh" "$(bash_input "SKIP=pre-commit git push origin main")" "SKIP git push"
-expect_hook_block "block-no-verify.sh" "$(bash_input "echo ok && git commit --no-verify -m test")" "compound git commit --no-verify"
+# block-no-verify.sh was a second shell tokenizer for the same commands
+# command_guard.py judges, and secret_guard.py only re-exported guard.secrets.
+# The git hook-bypass cases they covered live in tests/fixtures/git-commands.json.
+for retired in block-no-verify.sh secret_guard.py; do
+  [[ ! -e "$HOOKS/$retired" ]] && pass "$retired is gone" || fail "$retired should be gone"
+  grep -q "hooks/scripts/$retired" "$SCRIPT_DIR/install.sh" && pass "install.sh prunes $retired from older installs" || fail "install.sh should prune $retired"
+  grep -q "hooks/scripts/$retired" "$SCRIPT_DIR/uninstall.sh" && pass "uninstall.sh removes $retired from older installs" || fail "uninstall.sh should remove $retired"
+done
 
-# Should pass: unrelated --no-verify usage
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git commit -m test")" "normal git commit"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git commit -m \"--no-verify\"")" "quoted commit message"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "echo \"--no-verify\"")" "echo --no-verify"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "grep -- \"--no-verify\" README.md")" "grep --no-verify"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "git log --grep=\"--no-verify\"")" "git log --grep no-verify"
-expect_hook_pass "block-no-verify.sh" "$(bash_input "some-tool --no-verify")" "some-tool --no-verify"
-
-# Should pass: non-Bash tool
-INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"hello"}}'
-expect_hook_pass "block-no-verify.sh" "$INPUT" "non-Bash tool"
+# One implementation behind both legacy post-write names.
+INPUT='{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"console.log(\"debug\")"}}'
+OUTPUT=$(run_hook "warn-debug-code.sh" "$INPUT")
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.additionalContext | contains("[DEBUG-CONSOLE]")' > /dev/null \
+  && pass "warn-debug-code.sh still warns through its sibling" \
+  || fail "warn-debug-code.sh should still warn through its sibling"
+grep -q "warn-secrets.sh" "$HOOKS/warn-debug-code.sh" && pass "warn-debug-code.sh defers instead of duplicating" || fail "warn-debug-code.sh should defer to warn-secrets.sh"
 
 echo ""
 
@@ -271,6 +280,31 @@ echo "remind-compact.sh"
 # Should run without error (just increments counter)
 INPUT='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.ts","content":"x"}}'
 run_hook "remind-compact.sh" "$INPUT" > /dev/null 2>&1 && pass "remind-compact runs ok" || fail "remind-compact should not fail"
+
+# The counter belongs to this user, not to whoever gets to /tmp first.
+grep -q 'XDG_RUNTIME_DIR' "$HOOKS/remind-compact.sh" && pass "remind-compact keeps state in a per-user directory" || fail "remind-compact should keep state in a per-user directory"
+
+echo ""
+
+# --------------------------------------------------
+echo "check-guard-runtime.sh"
+# --------------------------------------------------
+
+INPUT='{"hook_event_name":"SessionStart"}'
+OUTPUT=$(run_hook "check-guard-runtime.sh" "$INPUT") && pass "guard runtime check exits 0 with python3" || fail "guard runtime check should exit 0 with python3"
+[[ -z "$OUTPUT" ]] && pass "guard runtime check is silent when python3 exists" || fail "guard runtime check should be silent when python3 exists"
+
+# Without an interpreter the guards are off; the session must be told so.
+OUTPUT=$(echo "$INPUT" | PATH="" "${BASH:-/bin/bash}" "$HOOKS/check-guard-runtime.sh" 2>&1) && pass "guard runtime check exits 0 without python3" || fail "guard runtime check should exit 0 without python3"
+echo "$OUTPUT" | jq -e '.hookSpecificOutput.hookEventName == "SessionStart" and (.hookSpecificOutput.additionalContext | contains("[GUARD-DISABLED]"))' > /dev/null \
+  && pass "guard runtime check reports disabled guards" \
+  || fail "guard runtime check should report disabled guards"
+
+for config in "$SETTINGS_HOOKS_JSON" "$PLUGIN_HOOKS_JSON"; do
+  jq -e '[.hooks.SessionStart[]?.hooks[]?.command] | map(select(contains("check-guard-runtime.sh"))) | length == 1' "$config" > /dev/null \
+    && pass "$(basename "$config") wires the guard runtime check" \
+    || fail "$(basename "$config") should wire the guard runtime check"
+done
 
 echo ""
 

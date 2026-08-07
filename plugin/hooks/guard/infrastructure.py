@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .context import HookContext
 from .decisions import Decision
-from .filesystem import find_project_root
-from .shell import CommandSegment, ShellParseResult
+from .options import first_positional, positional_args
+from .paths import find_project_root
+from .policy import load_policy, policy_section, string_list
+from .process import command_output
+from .shell import CommandSegment, ShellParseResult, normalized_command
 
 
-CONTEXT_TIMEOUT_SECONDS = 2
 DEFAULT_PRODUCTION_MARKERS = ["prod", "production"]
 ENVIRONMENT_VARIABLES = ("ENV", "ENVIRONMENT", "STAGE", "NODE_ENV")
+# "pre-production" and "not-production" name environments that are not production.
+NEGATED_PREFIXES = ("not-", "not_", "non-", "non_", "no-", "pre-", "pre_")
 PRODUCTION_FLAG_NAMES = {
     "--env",
     "--environment",
@@ -65,6 +65,14 @@ KUBECTL_GLOBAL_BOOLEAN_OPTIONS = {
     "--warnings-as-errors",
 }
 HELM_GLOBAL_OPTIONS_WITH_VALUES = {"--kube-context", "--namespace", "-n"}
+# Options these tools accept *before* their subcommand. Without them the guard
+# reads `docker --context prod system prune` as the subcommand `prod`.
+DOCKER_GLOBAL_OPTIONS_WITH_VALUES = {"--config", "--context", "-c", "--host", "-H", "--log-level", "-l"}
+NPM_GLOBAL_OPTIONS_WITH_VALUES = {"--prefix", "-C", "--workspace", "-w", "--userconfig", "--registry"}
+PNPM_GLOBAL_OPTIONS_WITH_VALUES = {"--dir", "-C", "--filter", "--workspace-dir"}
+YARN_GLOBAL_OPTIONS_WITH_VALUES = {"--cwd"}
+CARGO_GLOBAL_OPTIONS_WITH_VALUES = {"--manifest-path", "--config", "--color", "-Z"}
+GH_GLOBAL_OPTIONS_WITH_VALUES = {"--repo", "-R"}
 KUBECTL_DELETE_OPTIONS_WITH_VALUES = {
     "--cascade",
     "--field-selector",
@@ -91,6 +99,7 @@ class ProductionPolicy:
     kube_contexts: list[str]
     terraform_workspaces: list[str]
     unknown_environment_high_risk: bool = False
+    terraform_workspace_command: bool = False
 
 
 @dataclass(frozen=True)
@@ -170,7 +179,7 @@ def classify_operation(segment: CommandSegment) -> Operation | None:
     args = segment.args
 
     if command == "terraform":
-        action, _action_args = action_after_options(args, TERRAFORM_GLOBAL_OPTIONS_WITH_VALUES)
+        action, _action_args = first_positional(args, TERRAFORM_GLOBAL_OPTIONS_WITH_VALUES)
         if action == "apply":
             return Operation("TERRAFORM-APPLY", "Confirm terraform apply.", production_sensitive=True)
         if action == "destroy":
@@ -190,63 +199,48 @@ def classify_operation(segment: CommandSegment) -> Operation | None:
         return Operation("KUBECTL-DELETE", "Confirm kubectl delete.", production_sensitive=True)
 
     if command == "helm":
-        action, _action_args = action_after_options(args, HELM_GLOBAL_OPTIONS_WITH_VALUES)
+        action, _action_args = first_positional(args, HELM_GLOBAL_OPTIONS_WITH_VALUES)
         if action == "uninstall":
             return Operation("HELM-UNINSTALL", "Confirm helm uninstall.", production_sensitive=True)
 
-    if command == "docker" and args[:2] == ["system", "prune"]:
-        return Operation("DOCKER-SYSTEM-PRUNE", "Confirm docker system prune.", production_sensitive=True)
+    if command == "docker":
+        if subcommand_path(args, DOCKER_GLOBAL_OPTIONS_WITH_VALUES, 2) == ["system", "prune"]:
+            return Operation("DOCKER-SYSTEM-PRUNE", "Confirm docker system prune.", production_sensitive=True)
 
     if command == "npm":
-        if args and args[0] == "unpublish":
+        action, _ = first_positional(args, NPM_GLOBAL_OPTIONS_WITH_VALUES)
+        if action == "unpublish":
             return Operation("NPM-UNPUBLISH", "Do not unpublish npm packages.")
-        if args and args[0] == "publish":
+        if action == "publish":
             return Operation("NPM-PUBLISH", "Confirm npm publish.")
 
-    if command == "pnpm" and args and args[0] == "publish":
+    if command == "pnpm" and first_positional(args, PNPM_GLOBAL_OPTIONS_WITH_VALUES)[0] == "publish":
         return Operation("PNPM-PUBLISH", "Confirm pnpm publish.")
 
-    if command == "yarn" and args[:2] == ["npm", "publish"]:
+    if command == "yarn" and subcommand_path(args, YARN_GLOBAL_OPTIONS_WITH_VALUES, 2) == ["npm", "publish"]:
         return Operation("YARN-NPM-PUBLISH", "Confirm yarn npm publish.")
 
-    if command == "cargo" and args and args[0] == "publish":
+    if command == "cargo" and first_positional(args, CARGO_GLOBAL_OPTIONS_WITH_VALUES)[0] == "publish":
         return Operation("CARGO-PUBLISH", "Confirm cargo publish.")
 
-    if command == "twine" and args and args[0] == "upload":
+    if command == "twine" and first_positional(args, ())[0] == "upload":
         return Operation("TWINE-UPLOAD", "Confirm twine upload.")
 
-    if command == "gh" and len(args) >= 2:
-        if args[:2] == ["repo", "delete"]:
+    if command == "gh":
+        path = subcommand_path(args, GH_GLOBAL_OPTIONS_WITH_VALUES, 2)
+        if path == ["repo", "delete"]:
             return Operation("GH-REPO-DELETE", "Do not delete GitHub repositories.")
-        if args[:2] == ["release", "create"]:
+        if path == ["release", "create"]:
             return Operation("GH-RELEASE-CREATE", "Confirm GitHub release creation.")
-        if args[:2] == ["release", "delete"]:
+        if path == ["release", "delete"]:
             return Operation("GH-RELEASE-DELETE", "Confirm GitHub release deletion.")
 
     return None
 
 
-def action_after_options(args: list[str], value_options: set[str]) -> tuple[str | None, list[str]]:
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            index += 1
-            break
-        if token in value_options:
-            index += 2
-            continue
-        if any(token.startswith(f"{option}=") for option in value_options):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        return token, args[index + 1 :]
-
-    if index < len(args):
-        return args[index], args[index + 1 :]
-    return None, []
+def subcommand_path(args: list[str], value_options: set[str], depth: int) -> list[str]:
+    """The first `depth` positional arguments: `gh -R o/r repo delete` is repo delete."""
+    return positional_args(args, value_options)[:depth]
 
 
 def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str], str | None]:
@@ -271,6 +265,13 @@ def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str]
             index += 1
             continue
 
+        # An unknown option carrying its own value cannot hide the action behind
+        # it, whatever the option means: `kubectl --dry-run=client delete pod x`
+        # used to be reported as uncertain for no gain.
+        if token.startswith("--") and "=" in token:
+            index += 1
+            continue
+
         if token.startswith("-"):
             return None, [], token
 
@@ -281,48 +282,23 @@ def kubectl_action_after_options(args: list[str]) -> tuple[str | None, list[str]
     return None, [], None
 
 
-def normalized_command(segment: CommandSegment) -> str | None:
-    if segment.command is None:
-        return None
-    return Path(segment.command).name
-
-
 def deletes_protected_namespace(args: list[str]) -> bool:
-    normalized_args = drop_options(args, KUBECTL_DELETE_OPTIONS_WITH_VALUES)
+    normalized_args = positional_args(args, KUBECTL_DELETE_OPTIONS_WITH_VALUES)
     if not normalized_args:
         return False
 
     resource = normalized_args[0]
-    name = normalized_args[1] if len(normalized_args) > 1 else ""
     protected = {"kube-system", "default"}
 
-    if resource in {"namespace", "namespaces", "ns"} and name in protected:
-        return True
-    if resource.startswith(("namespace/", "namespaces/", "ns/")):
-        return resource.split("/", 1)[1] in protected
-    return False
-
-
-def drop_options(args: list[str], value_options: set[str]) -> list[str]:
-    normalized: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            normalized.extend(args[index + 1 :])
-            break
-        if token in value_options:
-            index += 2
-            continue
-        if any(token.startswith(f"{option}=") for option in value_options):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        normalized.append(token)
-        index += 1
-    return normalized
+    # `kubectl delete ns staging kube-system` deletes both: every name after the
+    # resource type counts, not just the first.
+    if resource in {"namespace", "namespaces", "ns"}:
+        return any(name in protected for name in normalized_args[1:])
+    return any(
+        argument.split("/", 1)[1] in protected
+        for argument in normalized_args
+        if argument.startswith(("namespace/", "namespaces/", "ns/"))
+    )
 
 
 def is_remote_script_pipe(parsed: ShellParseResult, index: int) -> bool:
@@ -354,20 +330,48 @@ def detect_production(segment: CommandSegment, context: GuardContext) -> Product
             return ProductionSignals(True, "Kubernetes context")
 
     if command == "terraform":
-        workspace = command_output(context.cwd, ["terraform", "workspace", "show"])
+        workspace = terraform_workspace(segment, context)
         if workspace and is_production_value(workspace, context.policy.markers, context.policy.terraform_workspaces):
             return ProductionSignals(True, "Terraform workspace")
 
     return ProductionSignals()
 
 
+def terraform_workspace(segment: CommandSegment, context: GuardContext) -> str | None:
+    """The selected workspace, read from the file terraform keeps it in.
+
+    `terraform workspace show` would reach the configured backend, which can be
+    remote: a hook is not the place to open a network connection or to prompt for
+    credentials. `.terraform/environment` holds the same name locally, so the
+    subprocess is only a fallback, and only where the policy allows it.
+    """
+    root = terraform_chdir(segment.args, context.cwd)
+    try:
+        workspace = (root / ".terraform" / "environment").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        workspace = ""
+    if workspace:
+        return workspace
+    if context.policy.terraform_workspace_command:
+        return command_output(root, ["terraform", "workspace", "show"])
+    return None
+
+
+def terraform_chdir(args: list[str], cwd: Path) -> Path:
+    """`terraform -chdir=dir` moves the whole run, including where the state lives."""
+    for token in args:
+        if token.startswith("-chdir="):
+            target = Path(token.split("=", 1)[1]).expanduser()
+            return target if target.is_absolute() else cwd / target
+    return cwd
+
+
 def production_from_env(segment: CommandSegment, policy: ProductionPolicy) -> ProductionSignals:
-    values: list[str] = []
-    for name in ENVIRONMENT_VARIABLES:
-        if name in segment.env:
-            values.append(segment.env[name])
-        if name in os.environ:
-            values.append(os.environ[name])
+    # Only variables set on the command itself count. The hook process inherits the
+    # developer's shell, where an exported NODE_ENV=production says nothing about
+    # what this command targets, and it produced an unappealable deny on every
+    # infrastructure command. Production-sensitive operations still prompt.
+    values = [segment.env[name] for name in ENVIRONMENT_VARIABLES if name in segment.env]
 
     for value in values:
         if is_production_value(value, policy.markers, []):
@@ -399,74 +403,42 @@ def production_from_flags(args: list[str], policy: ProductionPolicy) -> Producti
     return ProductionSignals()
 
 
-def command_output(cwd: Path, command: list[str]) -> str | None:
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=str(cwd),
-            text=True,
-            capture_output=True,
-            timeout=CONTEXT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if completed.returncode != 0:
-        return None
-    return completed.stdout.strip()
-
-
 def load_production_policy(project_root: Path) -> ProductionPolicy:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy: Any = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ProductionPolicy(markers=DEFAULT_PRODUCTION_MARKERS, kube_contexts=[], terraform_workspaces=[])
-
-    if not isinstance(raw_policy, dict):
-        return ProductionPolicy(markers=DEFAULT_PRODUCTION_MARKERS, kube_contexts=[], terraform_workspaces=[])
-
-    production = raw_policy.get("production")
-    if isinstance(production, dict):
-        markers = string_list(production.get("markers")) or DEFAULT_PRODUCTION_MARKERS
-        kube_contexts = string_list(production.get("kubeContexts"))
-        terraform_workspaces = string_list(production.get("terraformWorkspaces"))
-    else:
-        markers = DEFAULT_PRODUCTION_MARKERS
-        kube_contexts = []
-        terraform_workspaces = []
-
-    command_guard = raw_policy.get("commandGuard") if isinstance(raw_policy, dict) else None
-    unknown_environment_high_risk = (
-        isinstance(command_guard, dict) and command_guard.get("unknownEnvironment") == "high-risk"
-    )
+    policy = load_policy(project_root)
+    production = policy_section(policy, "production")
+    command_guard = policy_section(policy, "commandGuard")
     return ProductionPolicy(
-        markers=markers,
-        kube_contexts=kube_contexts,
-        terraform_workspaces=terraform_workspaces,
-        unknown_environment_high_risk=unknown_environment_high_risk,
+        markers=string_list(production.get("markers")) or DEFAULT_PRODUCTION_MARKERS,
+        kube_contexts=string_list(production.get("kubeContexts")),
+        terraform_workspaces=string_list(production.get("terraformWorkspaces")),
+        unknown_environment_high_risk=command_guard.get("unknownEnvironment") == "high-risk",
+        terraform_workspace_command=command_guard.get("terraformWorkspaceCommand") is True,
     )
-
-
-def string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str) and item]
 
 
 def is_production_value(value: str, markers: list[str], exact_values: list[str]) -> bool:
+    """A marker counts only as the whole value or as its leading/trailing component.
+
+    An interior match reads "pre-production-mirror" and "not-production" as
+    production, which turns a mirror or a review environment into a hard deny.
+    Name such environments explicitly through the policy's exact value lists.
+    """
     normalized = value.lower()
     for exact in exact_values:
         if normalized == exact.lower():
             return True
-    parts = [part for part in re.split(r"[^a-z0-9]+", normalized) if part]
+    if normalized.startswith(NEGATED_PREFIXES):
+        return False
     for marker in markers:
         normalized_marker = marker.lower()
         if not normalized_marker:
             continue
         if normalized == normalized_marker:
             return True
-        if normalized_marker in parts:
+        head = normalized[: len(normalized_marker) + 1]
+        if head == f"{normalized_marker}{head[-1:]}" and not head[-1:].isalnum():
+            return True
+        tail = normalized[-(len(normalized_marker) + 1) :]
+        if tail[1:] == normalized_marker and not tail[:1].isalnum():
             return True
     return False

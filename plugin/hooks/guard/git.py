@@ -2,27 +2,41 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
-from typing import Any
 
 from .context import HookContext
 from .decisions import Decision
+from .options import has_option, has_positional, positional_args
+from .policy import load_policy, string_list
+from .process import command_output
 from .shell import CommandSegment, ShellParseResult
 
 
 DEFAULT_PROTECTED_BRANCHES = ["main", "master"]
-GIT_TIMEOUT_SECONDS = 2
 
 GIT_GLOBAL_OPTIONS_WITH_VALUES = {
     "-C",
     "-c",
+    "--config-env",
     "--git-dir",
     "--work-tree",
     "--namespace",
     "--exec-path",
+}
+GIT_CONFIG_VALUE_OPTIONS = {"-c", "--config-env"}
+# Config keys that disable repository hooks outright.
+HOOK_BYPASS_CONFIG_KEYS = {"core.hookspath"}
+# Config keys whose value git executes as a command.
+EXECUTING_CONFIG_KEYS = {
+    "core.fsmonitor",
+    "core.pager",
+    "core.editor",
+    "core.sshcommand",
+    "diff.external",
+    "credential.helper",
+    "sequence.editor",
 }
 COMMIT_OPTIONS_WITH_VALUES = {
     "-m",
@@ -60,14 +74,48 @@ class GitInvocation:
     segment: CommandSegment
     subcommand: str
     args: list[str]
+    config_overrides: tuple[str, ...] = ()
+    # `git -C dir status` runs in another repository, which may be on another
+    # branch and dirty in its own way.
+    directories: tuple[str, ...] = ()
+
+    def working_directory(self, cwd: Path) -> Path:
+        """Where git will actually run: each -C is relative to the one before it."""
+        directory = cwd
+        for target in self.directories:
+            expanded = Path(target).expanduser()
+            directory = expanded if expanded.is_absolute() else directory / expanded
+        return directory
 
 
-@dataclass(frozen=True)
 class GitContext:
-    project_root: Path
-    current_branch: str | None
-    dirty: bool | None
-    protected_branches: list[str]
+    """Repository facts, each read from git only if a rule asks for it.
+
+    Most git commands are judged without any of them — `git log` matches no rule
+    at all — so loading three subprocesses up front put them on the critical path
+    of every git tool call.
+    """
+
+    def __init__(self, cwd: Path) -> None:
+        self.cwd = cwd
+
+    @cached_property
+    def project_root(self) -> Path:
+        toplevel = command_output(self.cwd, ["git", "rev-parse", "--show-toplevel"])
+        return Path(toplevel).resolve() if toplevel else self.cwd.resolve()
+
+    @cached_property
+    def current_branch(self) -> str | None:
+        return command_output(self.cwd, ["git", "branch", "--show-current"]) or None
+
+    @cached_property
+    def dirty(self) -> bool | None:
+        status = command_output(self.cwd, ["git", "status", "--porcelain"])
+        return None if status is None else bool(status.strip())
+
+    @cached_property
+    def protected_branches(self) -> list[str]:
+        return load_protected_branches(self.project_root)
 
 
 def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
@@ -75,9 +123,12 @@ def evaluate(context: HookContext, parsed: ShellParseResult) -> list[Decision]:
     if not invocations:
         return []
 
-    git_context = load_git_context(context.cwd)
+    # One context per directory, so repeating `-C` in a chain costs nothing.
+    contexts: dict[Path, GitContext] = {}
     decisions: list[Decision] = []
     for invocation in invocations:
+        directory = invocation.working_directory(context.cwd)
+        git_context = contexts.setdefault(directory, GitContext(directory))
         decisions.extend(evaluate_invocation(invocation, git_context))
     return decisions
 
@@ -88,77 +139,50 @@ def parse_git_invocation(segment: CommandSegment) -> GitInvocation | None:
         return None
 
     index = 1
+    config_overrides: list[str] = []
+    directories: list[str] = []
     while index < len(words):
         token = words[index]
         if token == "--":
             return None
         if token in GIT_GLOBAL_OPTIONS_WITH_VALUES:
+            if index + 1 < len(words):
+                if token in GIT_CONFIG_VALUE_OPTIONS:
+                    config_overrides.append(words[index + 1])
+                elif token == "-C":
+                    directories.append(words[index + 1])
             index += 2
             continue
         if any(token.startswith(f"{option}=") for option in GIT_GLOBAL_OPTIONS_WITH_VALUES if option.startswith("--")):
+            if token.startswith("--config-env="):
+                config_overrides.append(token.split("=", 1)[1])
             index += 1
             continue
         if token.startswith("-"):
             index += 1
             continue
-        return GitInvocation(segment=segment, subcommand=token, args=words[index + 1 :])
+        return GitInvocation(
+            segment=segment,
+            subcommand=token,
+            args=words[index + 1 :],
+            config_overrides=tuple(config_overrides),
+            directories=tuple(directories),
+        )
 
     return None
 
 
-def load_git_context(cwd: Path) -> GitContext:
-    project_root = git_output(cwd, ["git", "rev-parse", "--show-toplevel"])
-    root = Path(project_root).resolve() if project_root else cwd.resolve()
-    current_branch = git_output(cwd, ["git", "branch", "--show-current"]) or None
-    status = git_output(cwd, ["git", "status", "--porcelain"])
-    dirty = None if status is None else bool(status.strip())
-
-    return GitContext(
-        project_root=root,
-        current_branch=current_branch,
-        dirty=dirty,
-        protected_branches=load_protected_branches(root),
-    )
-
-
-def git_output(cwd: Path, command: list[str]) -> str | None:
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=str(cwd),
-            text=True,
-            capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if completed.returncode != 0:
-        return None
-    return completed.stdout.strip()
-
-
 def load_protected_branches(project_root: Path) -> list[str]:
-    policy_file = project_root / ".claude" / "security-policy.json"
-    try:
-        raw_policy: Any = json.loads(policy_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return DEFAULT_PROTECTED_BRANCHES
-
-    if not isinstance(raw_policy, dict):
-        return DEFAULT_PROTECTED_BRANCHES
-
-    protected = raw_policy.get("protectedBranches")
-    if not isinstance(protected, list):
-        return DEFAULT_PROTECTED_BRANCHES
-
-    branches = [branch for branch in protected if isinstance(branch, str) and branch]
+    branches = string_list(load_policy(project_root).get("protectedBranches"))
     return branches or DEFAULT_PROTECTED_BRANCHES
 
 
 def evaluate_invocation(invocation: GitInvocation, context: GitContext) -> list[Decision]:
     subcommand = invocation.subcommand
+    config_decisions = evaluate_config_overrides(invocation.config_overrides)
+    if config_decisions:
+        return config_decisions
+
     if has_bypass_environment(invocation.segment) and subcommand in {"commit", "push"}:
         return [
             Decision.deny(
@@ -187,6 +211,28 @@ def evaluate_invocation(invocation: GitInvocation, context: GitContext) -> list[
     return []
 
 
+def evaluate_config_overrides(config_overrides: tuple[str, ...]) -> list[Decision]:
+    """`git -c core.hooksPath=/dev/null commit` is the most direct hook bypass there is."""
+    decisions: list[Decision] = []
+    for override in config_overrides:
+        key = override.split("=", 1)[0].strip().lower()
+        if key in HOOK_BYPASS_CONFIG_KEYS:
+            decisions.append(
+                Decision.deny(
+                    "GIT-HOOK-BYPASS",
+                    f"Do not bypass repository hooks with git -c {key}.",
+                )
+            )
+        elif key in EXECUTING_CONFIG_KEYS:
+            decisions.append(
+                Decision.ask(
+                    "GIT-CONFIG-OVERRIDE",
+                    f"git -c {key} makes git run the configured value as a command. Confirm it is intended.",
+                )
+            )
+    return decisions
+
+
 def has_bypass_environment(segment: CommandSegment) -> bool:
     return segment.env.get("HUSKY") == "0" or "SKIP" in segment.env
 
@@ -200,7 +246,7 @@ def evaluate_commit(invocation: GitInvocation) -> list[Decision]:
 def evaluate_push(invocation: GitInvocation, context: GitContext) -> list[Decision]:
     if has_no_verify(invocation.args, PUSH_OPTIONS_WITH_VALUES):
         return [Decision.deny("GIT-HOOK-BYPASS", "Do not bypass hooks with git push --no-verify.")]
-    if push_has_mirror(invocation.args):
+    if has_option(invocation.args, ["--mirror"]):
         return [
             Decision.deny(
                 "GIT-PUSH-MIRROR",
@@ -273,7 +319,7 @@ def evaluate_reset(invocation: GitInvocation, context: GitContext) -> list[Decis
 
 
 def evaluate_clean(invocation: GitInvocation) -> list[Decision]:
-    if has_force_option(invocation.args):
+    if has_option(invocation.args, ["--force"], short_letters="f"):
         return [Decision.ask("GIT-CLEAN-FORCE", "Confirm git clean with force flags.")]
     return []
 
@@ -281,7 +327,7 @@ def evaluate_clean(invocation: GitInvocation) -> list[Decision]:
 def evaluate_restore(invocation: GitInvocation) -> list[Decision]:
     if has_help_option(invocation.args):
         return []
-    if has_path_argument(invocation.args, RESTORE_OPTIONS_WITH_VALUES):
+    if has_positional(invocation.args, RESTORE_OPTIONS_WITH_VALUES):
         return [Decision.ask("GIT-RESTORE", "Confirm git restore because it may discard file changes.")]
     return []
 
@@ -329,15 +375,6 @@ def has_short_alias_in_cluster(token: str, short_alias: str, value_options: set[
     return False
 
 
-def push_has_mirror(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            return False
-        if token == "--mirror":
-            return True
-    return False
-
-
 def push_force_kind(args: list[str]) -> str | None:
     for token in args:
         if token == "--":
@@ -364,7 +401,7 @@ def push_delete_target_branches(args: list[str]) -> list[str]:
     positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
     branches: list[str] = []
 
-    if push_has_delete_flag(args):
+    if has_option(args, ["--delete", "-d"]):
         branches.extend(short_branch_name(branch) for branch in positionals[1:])
 
     for refspec in push_refspecs(args):
@@ -379,15 +416,6 @@ def push_delete_target_branches(args: list[str]) -> list[str]:
 def push_refspecs(args: list[str]) -> list[str]:
     positionals = positional_args(args, PUSH_OPTIONS_WITH_VALUES)
     return positionals[1:] if len(positionals) > 1 else []
-
-
-def push_has_delete_flag(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            return False
-        if token in {"--delete", "-d"}:
-            return True
-    return False
 
 
 def branch_from_refspec(refspec: str, current_branch: str | None = None) -> str | None:
@@ -432,57 +460,8 @@ def branch_delete_targets(args: list[str]) -> list[str]:
     return targets
 
 
-def has_force_option(args: list[str]) -> bool:
-    for token in args:
-        if token == "--":
-            return False
-        if token == "--force":
-            return True
-        if token.startswith("-") and not token.startswith("--") and "f" in token[1:]:
-            return True
-    return False
-
-
 def has_help_option(args: list[str]) -> bool:
     return "-h" in args or "--help" in args
-
-
-def has_path_argument(args: list[str], value_options: set[str]) -> bool:
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            return bool(args[index + 1 :])
-        if option_takes_value(token, value_options):
-            index += 2
-            continue
-        if token.startswith("--") and any(token.startswith(f"{option}=") for option in value_options if option.startswith("--")):
-            index += 1
-            continue
-        if not token.startswith("-"):
-            return True
-        index += 1
-    return False
-
-
-def positional_args(args: list[str], value_options: set[str]) -> list[str]:
-    positionals: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        if token == "--":
-            positionals.extend(args[index + 1 :])
-            break
-        if option_takes_value(token, value_options):
-            index += 2
-            continue
-        if token.startswith("--") and any(token.startswith(f"{option}=") for option in value_options if option.startswith("--")):
-            index += 1
-            continue
-        if not token.startswith("-"):
-            positionals.append(token)
-        index += 1
-    return positionals
 
 
 def option_takes_value(token: str, value_options: set[str]) -> bool:

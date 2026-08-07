@@ -49,7 +49,7 @@ assert_contains "$SKILL" "/harden --remove-sandbox" "skill documents remove-sand
 assert_contains "$SKILL" "Default: \`/harden\` is the same as \`/harden --baseline\`" "skill documents default behavior"
 assert_contains "$SKILL" "PROFILE=strict" "skill maps strict profile"
 assert_contains "$SKILL" "SANDBOX_FLAG=--sandbox" "skill maps sandbox flag"
-assert_contains "$SKILL" "\$CLAUDE_PLUGIN_DIR/hardening/apply_profile.py" "skill supports plugin hardening assets"
+assert_contains "$SKILL" "\${CLAUDE_PLUGIN_ROOT:-\$CLAUDE_PLUGIN_DIR}/hardening/apply_profile.py" "skill supports plugin hardening assets"
 assert_contains "$SKILL" ".claude/hardening/apply_profile.py" "skill supports manual hardening assets"
 assert_contains "$SKILL" "--profile \"\$PROFILE\" \$SANDBOX_FLAG --dry-run" "skill previews selected profile with apply_profile dry-run"
 assert_contains "$SKILL" "--profile \"\$PROFILE\" \$SANDBOX_FLAG --check" "skill checks selected profile drift with apply_profile"
@@ -59,8 +59,18 @@ assert_contains "$SKILL" ".claude/harden-state.json" "skill lists harden state t
 assert_contains "$SKILL" ".claude/rules/common/destructive-operations.md" "skill lists destructive rule target"
 assert_contains "$SKILL" "--remove-sandbox --dry-run" "skill previews sandbox removal"
 assert_contains "$SKILL" "--remove-sandbox" "skill applies sandbox removal"
-assert_contains "$SKILL" "--profile \"\$PROFILE\" --remove --dry-run" "skill previews selected profile remove mode"
-assert_contains "$SKILL" "--profile \"\$PROFILE\" --remove" "skill applies selected profile remove mode"
+assert_contains "$SKILL" "\$APPLY_PROFILE\" --remove --dry-run" "skill previews remove mode"
+if grep -Eq -- 'APPLY_PROFILE" --remove$' "$SKILL"; then
+  pass "skill applies remove mode"
+else
+  fail "skill applies remove mode"
+fi
+# shellcheck disable=SC2016 # Sentinel checks the literal text of the skill instructions.
+if grep -Fq -- '--profile "$PROFILE" --remove' "$SKILL"; then
+  fail "skill remove mode resolves the profile from harden state"
+else
+  pass "skill remove mode resolves the profile from harden state"
+fi
 assert_contains "$SKILL" "Ask for explicit user confirmation before writing" "skill requires confirmation"
 assert_contains "$SKILL" "Do not run \`/bootstrap\` automatically" "skill does not auto-bootstrap"
 assert_contains "$SKILL" "Do not modify \`.claude/settings.local.json\`" "skill protects local settings"
